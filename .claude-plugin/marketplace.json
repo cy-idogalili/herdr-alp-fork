@@ -1,0 +1,13 @@
+{
+  "name": "herdr-alp",
+  "owner": {
+    "name": "ido-galili"
+  },
+  "plugins": [
+    {
+      "name": "herdr-bridge",
+      "source": "./plugins/herdr-bridge"
+    }
+  ],
+  "description": "Herdr alp layout companion: Claude Code plugin that feeds agent status to Herdr"
+}

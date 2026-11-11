@@ -1,0 +1,10 @@
+# Herdr writes these into mod folders
+gpui-kit.d.ts
+*.error
+*.bak
+
+# Claude Code writes types for the editor
+.claude-plugin/types/
+
+*.tmp
+.DS_Store
