@@ -2,7 +2,7 @@
 // tick showing how far through the window we are (how close the reset is).
 // Data: the agent's entry in ~/.local/state/herdr-agents/limits.json
 // ({ "<agent>": { five_hour, seven_day, ts } }), written for Claude Code by the
-// herdr-bridge plugin. Props: { agent } (default "claude").
+// alp plugin. Props: { agent } (default "claude").
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";

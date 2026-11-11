@@ -4,7 +4,7 @@
 // the terminal's title, the folder, and the agent's status; buttons split, zoom and close
 // this pane. Props from the app: { pane, terminal }. Click: focus the pane.
 // For agents that report to ~/.local/state/herdr-agents/<terminal>.json (see the
-// herdr-bridge Claude Code plugin) it adds model, effort and context chips.
+// alp Claude Code plugin) it adds model, effort and context chips.
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";

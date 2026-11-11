@@ -1,1 +1,0 @@
-{ "name": "herdr-bridge", "version": "0.3.0", "description": "Feeds Herdr the session's model, effort, context usage and rate limits (~/.local/state/herdr-agents) without using Claude's status line." }

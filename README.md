@@ -13,7 +13,7 @@ What's inside:
 | `layouts/alp.json` | the Herdr layout |
 | `mods/usage-limits/` | sidebar block: session (5h) and weekly (7d) usage, with time to reset |
 | `mods/pane-agent/` | pane header: icon, name, folder, model/effort/context chips, worktree, branch, status, split/zoom/close |
-| `plugins/herdr-bridge/` | Claude Code plugin that writes the status files the mods read |
+| `plugins/alp/` | Claude Code plugin that writes the status files the mods read |
 | `RECIPE.md` | the brief to rebuild it from scratch (herdr.dev format) |
 | `sync.sh` | copy the layout and mods into Herdr's home, or pull live edits back |
 
@@ -34,17 +34,17 @@ herdr-app do layout.switch '{"name":"alp"}'
 At the prompt of a Claude Code terminal session:
 
 ```
-/plugin install herdr-bridge --marketplace ido-galili/herdr-alp
+/plugin install alp --marketplace ido-galili/herdr-alp
 ```
 
-Answer `y` to add the marketplace, then pick a scope (user scope loads it in every session). From a shell: `claude plugin install herdr-bridge --marketplace ido-galili/herdr-alp`.
+Answer `y` to add the marketplace, then pick a scope (user scope loads it in every session). From a shell: `claude plugin install alp --marketplace ido-galili/herdr-alp`.
 
 While the repository is private, installing needs read access to it on GitHub and a git credential for github.com on that machine (an SSH key, or `gh auth login` then `gh auth setup-git`).
 
 **While developing**, load it straight from this folder instead, in `~/.claude/settings.json`:
 
 ```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "~/projects/herdr-alp/plugins/herdr-bridge" } }
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "~/projects/herdr-alp/plugins/alp" } }
 ```
 
 Restart running Claude sessions after installing or changing the plugin.

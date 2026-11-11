@@ -5,8 +5,8 @@
   },
   "plugins": [
     {
-      "name": "herdr-bridge",
-      "source": "./plugins/herdr-bridge"
+      "name": "alp",
+      "source": "./plugins/alp"
     }
   ],
   "description": "Herdr alp layout companion: Claude Code plugin that feeds agent status to Herdr"
