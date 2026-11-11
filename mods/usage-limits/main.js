@@ -3,10 +3,15 @@
 // Data: the agent's entry in ~/.local/state/herdr-agents/limits.json
 // ({ "<agent>": { five_hour, seven_day, ts } }), written for Claude Code by the
 // alp plugin. Props: { agent } (default "claude").
+//
+// Folded, the rail cell is shorter than the two rows, and a block's height is fixed
+// by the layout: the mod resizes its own block so the space under the content stays
+// what it is unfolded. Props: { block } the layout node id (default "limits"),
+// { height } unfolded px (default 96), { foldedHeight } folded px (default 82).
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, home, readTextFile, layout } from "herdr";
+import { theme, home, readTextFile, layout, run } from "herdr";
 
 const WINDOWS = [
   { key: "five_hour", label: "Session", short: "5h", span: 5 * 3600 },
@@ -37,6 +42,10 @@ function left(sec) {
 export default class UsageLimits extends View {
   init(props, cx) {
     this.agent = props?.agent ?? "claude";
+    this.block = props?.block ?? "limits";
+    this.height = props?.height ?? 96;
+    this.foldedHeight = props?.foldedHeight ?? 82;
+    this.folded = undefined; // the fold state the block was last sized for
     this.data = null;
     this.load(cx);
     cx.timer.every(5000, (cx) => this.load(cx));
@@ -102,8 +111,14 @@ export default class UsageLimits extends View {
 
   render() {
     const t = theme();
-    const body = narrow()
-      ? v_flex().w_full().pt(6).pb(14).child(this.cell(t, WINDOWS[0]))
+    const folded = narrow();
+    // Render re-runs when the layout changes (folding the sidebar); resize only on a change.
+    if (folded !== this.folded) {
+      this.folded = folded;
+      run("layout.resize", { id: this.block, px: folded ? this.foldedHeight : this.height });
+    }
+    const body = folded
+      ? v_flex().w_full().pt(10).child(this.cell(t, WINDOWS[0]))
       : v_flex().w_full().px(14).pt(10).gap(10).children(WINDOWS.map((w) => this.row(t, w)));
     return v_flex().size_full().bg(t.chrome)
       .child(body)
