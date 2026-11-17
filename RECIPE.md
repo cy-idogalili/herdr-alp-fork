@@ -17,6 +17,7 @@ Left to right:
   - **Tabs**, 42px: the shipped tab bar, with the Files / Changes panel buttons. Drags the window.
   - **Body**, 8px padding and gap: the active tab's panes, each a card with `background` fill, 1px `border` outline (1px `accent` when focused), 10px radius, 8px between cards, framed even when alone. To the right a hidden 368px panel (280–900) stacking the shipped `files` and `changes` panels, opened from the tab bar.
   - **Status bar**, 28px: the shipped `workspace-status`.
+- Theme: Dracula, shipped as the layout's own theme `themes/alp.json` (background `#282a36`, chrome `#21222c`, border `#44475a`, hover `#343746`, dim `#6272a4`, accent `#bd93f9`, working `#f1fa8c`, blocked `#ff5555`, done `#50fa7b`) and set as the root's `theme`. Every color below is a theme name, so another theme from the picker restyles it all.
 - Window: `canvas` background, no title bar (traffic lights at 12,16), 1px `border` dividers, terminal padding 14×12.
 
 **Pane header**, 30px, always shown, at the top of each card, 12px text on `background` with a 1px `border` bottom line. Left to right:
@@ -43,7 +44,7 @@ Left to right:
 
 ## Built from
 
-- **Layout** `layouts/alp.json`, cloned from the shipped `main` (0.1.14): `root` row → `sidebar` column (`brand` block, `sidebar-lists` column of `limits` / `spaces` / `agents` blocks, `sidebar-footer` block) and `work` column (`tabs` block, `work-body` row of `main` block + hidden `panel` column with a `panel-body` stack of `files` / `changes`, `status` block). `main` shows `{ "tab": "active" }` with a `pane` frame whose `header` is `{ "content": { "mod": "pane-agent" }, "reveal": "always", "height": 30, "position": "top" }`.
+- **Layout** `layouts/alp.json`, cloned from the shipped `main` (0.1.14): `root` row with `"theme": "alp"` → `sidebar` column (`brand` block, `sidebar-lists` column of `limits` / `spaces` / `agents` blocks, `sidebar-footer` block) and `work` column (`tabs` block, `work-body` row of `main` block + hidden `panel` column with a `panel-body` stack of `files` / `changes`, `status` block). `main` shows `{ "tab": "active" }` with a `pane` frame whose `header` is `{ "content": { "mod": "pane-agent" }, "reveal": "always", "height": 30, "position": "top" }`.
 - **Shipped mods used**: `workspace-chrome` (brand, and footer with `props: { footer: true }`), `spaces`, `agents`, `tabs`, `files`, `changes`, `workspace-status`. Art borrowed from them: `mods/workspace-chrome/clock.svg`, `mods/workspace-chrome/spinner.svg`.
 - **`mods/usage-limits`**: a `View` reading `~/.local/state/herdr-agents/limits.json` with `readTextFile(home() + …)`, picking the entry for `props.agent` (default `"claude"`). Uses `theme()` and `layout()` (sidebar width for the rail), and `run("layout.resize", { id: "limits", px })` when the fold state changes. Props: `agent`, `block` (default `"limits"`), `height` (96), `foldedHeight` (82). Art: `gauge.svg`.
 - **`mods/pane-agent`**, cloned from the shipped `pane` (0.1.14): `panes()` + `props().pane` for its pane; `readTextFile` of `~/.local/state/herdr-agents/<terminal>.json` every 3 seconds; `exec("git", ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])` in the pane's folder (a worktree when the two differ; the worktree name is the git dir's last part); `run("pane.focus" | "pane.split" | "pane.zoom" | "pane.close")`. Art: `close`, `split-down`, `split-right`, `zoom`, `unzoom`, `worktree` SVGs.
@@ -51,6 +52,7 @@ Left to right:
 
 ## Watch out
 
+- The theme is named like the layout (`themes/alp.json`) so it is Alp's own and can't clash with a `dracula.json` the person already has; Settings offers it only on this layout. Picking a theme in the picker rewrites the layout's root `theme`.
 - Mod art paths are relative to Herdr's home (`mods/pane-agent/zoom.svg`): renaming a mod means renaming its paths too.
 - `pane-agent` compares the file's `agent` along with model, effort and context before redrawing; leave `agent` out and a file from another agent keeps showing the old chips.
 - `limits.json` is shared by every agent that reports: read it, change your own key, write it back; never overwrite the whole file.

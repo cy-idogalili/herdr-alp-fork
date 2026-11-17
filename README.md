@@ -2,7 +2,10 @@
 
 A layout for the [Herdr](https://herdr.dev) desktop app, plus the Claude Code plugin that feeds it.
 
-An *Alp* is the high summer pasture of the Swiss Alps: the herd roams the open slopes, unfenced, and the herdsman is up there with it, in charge. This layout is that for coding agents: a sidebar with your account's usage limits, spaces and agents, and a header on every pane with the agent's model, effort, context fill, worktree, branch and status.
+An *Alp* is the high summer pasture of the Swiss Alps: the herd roams the open slopes, unfenced, and the herdsman is up there with it, in charge. This layout is that for coding agents: a sidebar with your account's usage limits, spaces and agents, and a header on every pane with the agent's model, effort, context fill, worktree, branch and status. It comes in [Dracula](https://draculatheme.com) colors.
+
+> [!NOTE]
+> **Claude Code only, for now.** The usage limits and the model, effort and context chips come from the `alp` Claude Code plugin. Other agents and shells still get the pane header (name, folder, worktree, status) but no chips. The status files are agent-neutral, so other agents can be added later (see [Status files](#status-files)).
 
 ![Alp](preview.png)
 
@@ -11,6 +14,7 @@ What's inside:
 | Path | What it is |
 |---|---|
 | `layouts/alp.json` | the Herdr layout |
+| `themes/alp.json` | its built-in theme: Dracula |
 | `mods/usage-limits/` | sidebar block: session (5h) and weekly (7d) usage, with time to reset |
 | `mods/pane-agent/` | pane header: icon, name, folder, model/effort/context chips, worktree, branch, status, split/zoom/close |
 | `plugins/alp/` | Claude Code plugin that writes the status files the mods read |
@@ -23,23 +27,31 @@ What's inside:
 
 ```sh
 git clone https://github.com/ido-galili/herdr-alp && cd herdr-alp
-./sync.sh install                                   # copies into ~/.config/herdr-app
+./sync.sh install                                   # copies layout, theme and mods into ~/.config/herdr-app
 herdr-app do layout.switch '{"name":"alp"}'
 ```
 
-`ctrl-shift-l` switches back to your previous layout.
+`ctrl-shift-l` switches back to your previous layout. Alp opens in its own Dracula theme (`alp` in the theme picker, offered only on this layout); picking another theme there overrides it.
+
+Or ask your agent to add `herdr.dev/layouts/ido-galili/herdr-alp`: Herdr's `AGENTS.md` tells it how.
 
 ### 2. Claude Code plugin
 
-At the prompt of a Claude Code terminal session:
+Without it the layout works, but the usage limits show `–` and the pane headers show no chips. This repository is also a Claude Code plugin marketplace, so in a Claude Code session:
 
 ```
-/plugin install alp --marketplace ido-galili/herdr-alp
+/plugin marketplace add ido-galili/herdr-alp
+/plugin install alp@herdr-alp
 ```
 
-Answer `y` to add the marketplace, then pick a scope (user scope loads it in every session). From a shell: `claude plugin install alp --marketplace ido-galili/herdr-alp`.
+Pick a scope when asked (user scope loads it in every session). Or from a shell:
 
-While the repository is private, installing needs read access to it on GitHub and a git credential for github.com on that machine (an SSH key, or `gh auth login` then `gh auth setup-git`).
+```sh
+claude plugin marketplace add ido-galili/herdr-alp
+claude plugin install alp@herdr-alp
+```
+
+Update it later with `/plugin marketplace update herdr-alp`.
 
 **While developing**, load it straight from this folder instead, in `~/.claude/settings.json`:
 
@@ -73,3 +85,7 @@ herdr-app check ~/.config/herdr-app/mods/pane-agent
 - A browser tab.
 - A projects tab: issues, pull requests, CI.
 - **senn**, the Alp's herdsman: a mod that steers the agents.
+
+## License
+
+[MIT](LICENSE)
