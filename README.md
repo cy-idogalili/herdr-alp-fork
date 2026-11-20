@@ -107,14 +107,19 @@ the Dashboard starts on all your repositories.
   from every repository in scope. Both buttons open a Claude Code tab running the prompt set in
   Settings, in that repository's local clone, and show only when the prompt is set.
 - **Herds:** your Claude Code sessions and how they are linked. A session that messaged others
-  (`SendMessage`) or made their worktrees is a herdsman: drawn on top, with a line down to each
+  (`SendMessage`) or made their worktrees is a herdsman, marked with a crook: drawn on top, with a line down to each
   of its herd, labelled `msg 12:36` for its latest message or dotted `worktree`. Who and when
   only: no message text is shown. Sessions with no link graze: a card each, in space order, with a
   stripe in the space's color and its avatar in the corner. Every box and card ends with
-  the session's git branch. A click opens
+  the session's git branch. A session that started agents (the Agent tool, forks included) leads
+  them too: a smaller box per agent, a lamb for a fork and a herding dog for any other agent, with what it is for and how long it has run (or when it
+  finished), on a line labelled with its type, dotted for a background agent. An agent started
+  by an agent sits under it. Agents that finished over 30 minutes ago fold into "+ N finished
+  earlier". A click opens
   a session's tab. A background session is shown in the tab titled with its name, or in the
   tab picked with Link a tab. It reads Claude Code's files (`~/.claude/sessions`, the
-  sessions' transcripts) and redraws when a session starts, ends or changes status. Open it
+  sessions' transcripts and agent files) and redraws when a session starts, ends or changes
+  status, and every few seconds while its agents work. Open it
   directly with `herdr-app do tab.new '{"mod":"alpmeister","props":{"tab":"herds"}}'`.
 - **Settings:** everything below, as a form (see [Settings](#settings)), in an "Alpmeister
   settings" tab opened from the gear (or gone to, when it is already open). A save there makes

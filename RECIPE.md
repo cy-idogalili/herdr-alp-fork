@@ -183,12 +183,27 @@ open it with `tab.new {mod: "alpmeister"}`.
   The Daypack's Claude buttons do the same. It fetches when the tab opens and on Refresh only.
   - **Herds**: the Claude Code sessions on this machine and the links between them.
     - A Herds card: each herd as a graph. Its herdsman (the session that made the most links)
-      is a box with an `accent` border, labelled "herdsman"; a 1px `border` line drops to a bar,
+      is a box with an `accent` border; a 1px `border` line drops to a bar,
       and from it a 22px stub to each member's box, side by side, 260px of room each, centered.
       A stub is solid and labelled `msg 14:27` (the latest message) or dotted (four 3px dashes)
       and labelled `worktree`. Links between members are listed below the graph as one dim line
       each. Who and when only: never message text.
-    - A Grazing card: the sessions with no link, as a wrapping grid of 272px cards in the
+    - Role marks: Alp's own 24px line icons at 14px, at the end of each box's first line, with
+      their meaning on hover: the herdsman's crook (`crook.svg`, `accent`), a cow for a member
+      session and for each grazing card, before the space's avatar (`cow.svg`), a lamb for a fork agent (`lamb.svg`), a herding dog for any other agent
+      (`dog.svg`), all in `muted` but the crook.
+    - Agents: a session that started agents (`<session>/subagents/agent-<id>.meta.json`) is the
+      herdsman of a herd with them, even with no link to another session. Its agents sit beside
+      its member sessions under the same bar, 180px of room each: a 58px box (`working` border
+      while it works) with the status mark and the agent's description, then "12m" running ("·
+      quiet" with no write for 3 minutes), or "done 5m ago". The stub is labelled with the agent's
+      type, dotted for a background agent. Tooltip: fork or type, background or foreground, model,
+      start time. A click opens the session's tab. A member session's own agents stack under its
+      box. An agent with `spawnDepth` 2 or more sits under the agent whose transcript holds its
+      `toolUseId`, a step in, as deep as they go. Agents finished more than 30 minutes ago fold
+      into a "+ N finished earlier" button under the herd. The Herds chip adds "N agents
+      working".
+    - A Grazing card: the sessions with no link and no recent agents, as a wrapping grid of 272px cards in the
       sidebar's space order, then the ones in no space. A card: a 3px stripe down the left edge
       in the space's color, the status mark and name, the space's avatar (its letter on its
       color, 15px) in the corner with the space's name on hover, the tab's name below (the
@@ -217,7 +232,12 @@ open it with `tab.new {mod: "alpmeister"}`.
   session's pid; a background session's is the Claude tab titled with its name, else the one
   picked with Link a tab (`~/.local/state/alp/herds.json`). The branch is the pane's live
   `branch`, else `git branch --show-current` in the session's folder. `herds-view.js` draws it;
-  `watchFolder(~/.claude/sessions)` reloads it.
+  `watchFolder(~/.claude/sessions)` reloads it, and so does each live session's `subagents`
+  folder, with a 3-second pause (`cx.timer.after`) after each change, as agents write often. The
+  agents are read in one `sh` call: per agent its meta file, the first `timestamp` in the first
+  lines of its transcript (the first line is a header with none), the transcript's mtime
+  (`stat -c %Y`, or `stat -f %m` on macOS), and for a nested agent the sibling transcript that
+  holds its `toolUseId` (`grep -l -F`).
 - **Watch out:** issue search cannot filter on a board field, so in-flight items come from the
   project's own `items(query:)` filter. GitHub milestones have no start date. The runtime has no
   locale data, so dates are formatted by hand. Without a `mod.json` with `"place": "none"`, Herdr

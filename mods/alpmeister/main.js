@@ -40,6 +40,8 @@ import { SettingsForm } from "./settings-view.js";
 import { Card, ICONS, IconButton, Note, TextButton, ago, fillPrompt, shortRepo } from "./ui.js";
 
 const STALE_AFTER = 2 * 3600000;
+/** The pause after an agents folder changes before it is watched again: agents write often. */
+const AGENT_WATCH_PAUSE = 3000;
 const WIDE = 1000;
 const TABS = { dashboard: "dashboard", today: "today", herds: "herds", settings: "settings" };
 const TAB_KEY = "alpmeister.tab";
@@ -98,6 +100,8 @@ export default class Alpmeister extends View {
     this.herdsLoading = false;
     this.herdsAgain = false;
     this.herdsWatching = false;
+    this.agentWatches = new Map();
+    this.expandedAgents = new Set();
     this.herdsFailure = null;
     this.picking = null;
     this.focus = new FocusStore();
@@ -142,6 +146,7 @@ export default class Alpmeister extends View {
         try {
           this.herds = await loadHerds();
           this.herdsFailure = null;
+          this.watchAgents(cx);
         } catch (error) {
           this.herdsFailure = String(error?.message ?? error);
           console.log(`alpmeister: herds failed: ${this.herdsFailure}`);
@@ -166,6 +171,36 @@ export default class Alpmeister extends View {
         this.reloadHerds(cx);
       }
     });
+  }
+
+  /**
+   * Reads the herds again whenever an agent folder changes: an agent starting, stepping or
+   * finishing. One watch per folder, while its session is live; after each change it waits
+   * AGENT_WATCH_PAUSE, so a busy agent redraws the tab every few seconds, not on every write.
+   */
+  watchAgents(cx) {
+    for (const folder of this.herds?.agentFolders ?? []) {
+      if (this.agentWatches.has(folder)) continue;
+      this.agentWatches.set(folder, null);
+      cx.spawn(async (cx) => {
+        while (this.herds?.agentFolders?.includes(folder)) {
+          await watchFolder(folder);
+          this.reloadHerds(cx);
+          await new Promise((resolve) => {
+            // Kept on the view: a dropped task would not fire.
+            this.agentWatches.set(folder, cx.timer.after(AGENT_WATCH_PAUSE, () => resolve()));
+          });
+        }
+        this.agentWatches.delete(folder);
+      });
+    }
+  }
+
+  /** Shows or folds the agents a session finished a while ago. */
+  toggleAgents(sessionId, cx) {
+    if (this.expandedAgents.has(sessionId)) this.expandedAgents.delete(sessionId);
+    else this.expandedAgents.add(sessionId);
+    cx.notify();
   }
 
   /** Links a background session to the tab that shows it (or unlinks it), then redraws. */
@@ -716,6 +751,8 @@ export default class Alpmeister extends View {
             cx.notify();
           },
           link: (sessionId, address, cx) => this.linkTab(sessionId, address, cx),
+          expandedAgents: this.expandedAgents,
+          toggleAgents: (sessionId, cx) => this.toggleAgents(sessionId, cx),
         }),
       );
     } else {

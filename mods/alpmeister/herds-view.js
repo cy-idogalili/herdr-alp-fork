@@ -1,17 +1,36 @@
 // The Herds tab: each herd drawn as a graph, its herdsman on top with lines down to the sessions
-// it is linked to, each line labelled with how (a message and its time, or a worktree). Below,
-// the sessions grazing alone, a card each, striped in their space's color. A click opens a tab.
+// it is linked to, each line labelled with how (a message and its time, or a worktree), and to
+// the agents it started, each line labelled with the agent's type. Below, the sessions grazing
+// alone, a card each, striped in their space's color. A click opens a tab.
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { agents, panes, run, shared, spaces, theme } from "herdr";
-import { herdsOf } from "./herds-data.js";
-import { Card, Chip, Note, TextButton, formatTime } from "./ui.js";
+import { agentChildren, agentsByAge, herdsOf } from "./herds-data.js";
+import { Card, Chip, Note, TextButton, ago, formatTime } from "./ui.js";
 
 const SPINNER = "mods/workspace-chrome/spinner.svg";
 
+/**
+ * The marks for who is who in a herd, Alp's own line icons: the herdsman's crook, a cow for a
+ * member session, a lamb for a fork (a copy of its session), a herding dog for any other agent.
+ */
+const ROLE_ICONS = {
+  herdsman: { icon: "mods/alpmeister/crook.svg", tooltip: "Herdsman: leads this herd" },
+  member: { icon: "mods/alpmeister/cow.svg", tooltip: "In the herd: a session of its own" },
+  grazing: { icon: "mods/alpmeister/cow.svg", tooltip: "Grazing: a session on its own" },
+  fork: { icon: "mods/alpmeister/lamb.svg", tooltip: "Fork: a copy of its session, with its context" },
+  agent: { icon: "mods/alpmeister/dog.svg", tooltip: "Agent: sent out by its session" },
+};
+
 /** The room each member of a herd gets: the graph stays compact on a wide tab. */
 const MEMBER_WIDTH = 260;
+
+/** The room each agent gets in a row: agents are smaller than sessions. */
+const AGENT_WIDTH = 180;
+
+/** One height for every agent box: status and description, then type and time. */
+const AGENT_HEIGHT = 58;
 
 /** One width for every grazing card, so the grid's rows line up. */
 const CARD_WIDTH = 272;
@@ -94,8 +113,24 @@ function StatusMark(t, status) {
   return div().size(7).mx(2).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
 }
 
-/** One session as a box: status, name, where it runs. A click opens its tab. */
-function SessionBox(t, session, live, actions, { herdsman = false } = {}) {
+/**
+ * A role's mark at the end of a box's first line, with its meaning on hover.
+ * @param {object} t The theme.
+ * @param {string} id A unique element id.
+ * @param {"herdsman" | "member" | "grazing" | "fork" | "agent"} role
+ * @param {string} [color] The tint; the herdsman's is the accent.
+ * @returns {object}
+ */
+function RoleIcon(t, id, role, color) {
+  const { icon, tooltip } = ROLE_ICONS[role];
+  return div().id(id).flex_none().text_color(color ?? t.muted).tooltip(tooltip).child(svg(icon).size(14));
+}
+
+/**
+ * One session as a box: status, name and its role in the herd, then where it runs. A click opens
+ * its tab.
+ */
+function SessionBox(t, session, live, actions, { herdsman = false, member = false } = {}) {
   const status = statusOf(session, live);
   const hasTab = live.has(session.terminal);
   return v_flex()
@@ -127,7 +162,9 @@ function SessionBox(t, session, live, actions, { herdsman = false } = {}) {
         .child(StatusMark(t, status))
         .child(
           div().flex_1().min_w(0).truncate().text_size(12).font_medium().text_color(t.foreground).child(session.name),
-        ),
+        )
+        .when(herdsman, (el) => el.child(RoleIcon(t, `hb-role-${session.id}`, "herdsman", t.accent)))
+        .when(member, (el) => el.child(RoleIcon(t, `hb-role-${session.id}`, "member"))),
     )
     .child(
       h_flex()
@@ -136,7 +173,6 @@ function SessionBox(t, session, live, actions, { herdsman = false } = {}) {
         .text_size(10.5)
         .text_color(t.dim)
         .h(20)
-        .when(herdsman, (el) => el.child(div().flex_none().text_color(t.accent).font_medium().child("herdsman")))
         .child(div().flex_1().min_w(0).truncate().child(placeOf(session, live)))
         // A background session runs in no terminal: link it by hand to the tab that shows it.
         .children([LinkButton(session, actions, "hb")].filter(Boolean)),
@@ -182,10 +218,20 @@ function TabPicker(t, sessionId, sessions, live, actions) {
     .child(TextButton(`hp-cancel-${sessionId}`, "Cancel", (cx) => actions.pick(null, cx)));
 }
 
-/** A line down to one member, solid for a message and dotted for a worktree, with its label. */
-function Connector(t, index, count, link) {
+/** How a line to a member session reads: solid with the message time, or dotted for a worktree. */
+function linkLine(link) {
+  if (!link) return { label: "", dotted: false };
+  return link.kind === "message"
+    ? { label: `msg ${formatTime(link.at)}`, dotted: false }
+    : { label: "worktree", dotted: true };
+}
+
+/** How a line to an agent reads: its type, dotted while it runs in the background. */
+const agentLine = (agent) => ({ label: agent.type, dotted: agent.background });
+
+/** A line down from the bar to one member or agent, solid or dotted, with its label. */
+function Connector(t, index, count, { label, dotted }) {
   const line = t.border;
-  const dotted = link?.kind === "worktree";
   const stub = dotted
     ? v_flex()
         .w(1)
@@ -194,7 +240,6 @@ function Connector(t, index, count, link) {
         .flex_none()
         .children([0, 1, 2, 3].map(() => div().w(1).h(3).bg(t.dim)))
     : div().w(1).h(22).flex_none().bg(line);
-  const label = link ? (link.kind === "message" ? `msg ${formatTime(link.at)}` : "worktree") : "";
   return v_flex()
     .w_full()
     .child(
@@ -213,15 +258,129 @@ function Connector(t, index, count, link) {
     );
 }
 
+/**
+ * One agent a session started: its status and what it is for, then its type and how long it has
+ * run, or when it finished. A click opens its session's tab, where it reports.
+ */
+function AgentBox(t, agent, session, live) {
+  const now = Date.now();
+  const hasTab = live.has(session.terminal);
+  const when = agent.finished
+    ? `done ${ago(now - (agent.lastAt ?? now))} ago`
+    : agent.startedAt
+      ? `${ago(now - agent.startedAt)}${agent.status === "idle" ? " · quiet" : ""}`
+      : "";
+  const details = [
+    agent.fork ? "fork of the session" : `${agent.type} agent`,
+    agent.background ? "in the background" : "in the foreground",
+    agent.model ? `model ${agent.model}` : null,
+    agent.startedAt ? `started ${formatTime(agent.startedAt)}` : null,
+  ].filter(Boolean);
+  return v_flex()
+    .id(`ha-${session.id}-${agent.id}`)
+    .w_full()
+    .max_w(AGENT_WIDTH - 12)
+    .min_w(0)
+    .h(AGENT_HEIGHT)
+    .flex_none()
+    .px(8)
+    .py(7)
+    .gap(4)
+    .rounded(7)
+    .border_1()
+    .border_color(agent.status === "working" ? `${t.working}66` : t.border)
+    .bg(t.canvas)
+    .tooltip(`${agent.description}\n${details.join(" · ")}`)
+    .when(hasTab, (el) =>
+      el
+        .cursor_pointer()
+        .hover((style) => style.bg(t.hover))
+        .on_click(() => run("pane.focus", { terminal: session.terminal })),
+    )
+    .child(
+      h_flex()
+        .gap(6)
+        .items_center()
+        .min_w(0)
+        .child(StatusMark(t, agent.status))
+        .child(
+          div()
+            .flex_1()
+            .min_w(0)
+            .truncate()
+            .text_size(11.5)
+            .text_color(agent.finished ? t.muted : t.foreground)
+            .child(agent.description),
+        )
+        .child(RoleIcon(t, `ha-role-${session.id}-${agent.id}`, agent.fork ? "fork" : "agent")),
+    )
+    .child(div().text_size(10).text_color(t.dim).truncate().child(when));
+}
+
+/**
+ * An agent and, under it, the agents it started, each a step in with a short line from its
+ * parent, as deep as they go.
+ */
+function AgentTree(t, agent, session, live) {
+  const children = agentChildren(session, agent);
+  return v_flex()
+    .w_full()
+    .items_center()
+    .child(div().w_full().px(6).flex().justify_center().child(AgentBox(t, agent, session, live)))
+    .children(
+      children.map((child) =>
+        v_flex()
+          .w_full()
+          .pl(14)
+          .items_center()
+          .child(div().w(1).h(10).bg(t.border))
+          .child(AgentTree(t, child, session, live)),
+      ),
+    );
+}
+
+/**
+ * A member session's own agents, stacked under its box in its column, with the button that shows
+ * or folds the ones finished earlier.
+ */
+function AgentStack(t, session, live, actions) {
+  const { recent, earlier } = agentsByAge(session);
+  const open = actions.expandedAgents?.has(session.id);
+  const shown = open ? [...earlier, ...recent] : recent;
+  if (!shown.length && !earlier.length) return null;
+  return v_flex()
+    .w_full()
+    .items_center()
+    .gap(4)
+    .pt(6)
+    .children(shown.map((agent) => AgentTree(t, agent, session, live)))
+    .when(earlier.length > 0, (el) => el.child(EarlierToggle(t, session, earlier.length, open, actions)));
+}
+
+/** "+ N finished earlier": shows or folds a session's agents that finished a while ago. */
+function EarlierToggle(t, session, count, open, actions) {
+  return TextButton(
+    `ha-earlier-${session.id}`,
+    open ? "Hide the earlier agents" : `+ ${count} finished earlier`,
+    (cx) => actions.toggleAgents(session.id, cx),
+  );
+}
+
 /** The latest link from the herdsman to a member: a message before a worktree. */
 function linkTo(herd, member) {
   const from = herd.links.filter((link) => link.from === herd.herdsman.id && link.to === member.id);
   return from.find((link) => link.kind === "message") ?? from[0] ?? null;
 }
 
-/** One herd: the herdsman's box, a line down, then the members side by side. */
+/**
+ * One herd: the herdsman's box, a line down, then side by side the member sessions (each with its
+ * own agents under it) and the herdsman's agents.
+ */
 function HerdGraph(t, herd, sessions, live, actions) {
-  const count = herd.members.length;
+  const { recent, earlier } = agentsByAge(herd.herdsman);
+  const open = actions.expandedAgents?.has(herd.herdsman.id);
+  const ownAgents = open ? [...earlier, ...recent] : recent;
+  const count = herd.members.length + ownAgents.length;
   const others = herd.links.filter((link) => link.from !== herd.herdsman.id);
   const name = (id) => sessions.find((session) => session.id === id)?.name ?? id;
   return v_flex()
@@ -235,22 +394,36 @@ function HerdGraph(t, herd, sessions, live, actions) {
     .child(
       h_flex()
         .w_full()
-        .max_w(count * MEMBER_WIDTH)
+        .max_w(herd.members.length * MEMBER_WIDTH + ownAgents.length * AGENT_WIDTH)
         .items_start()
         .children(
           herd.members.map((member, index) =>
             v_flex()
-              .flex_1()
+              .flex_grow(1)
+              .flex_basis(MEMBER_WIDTH)
               .min_w(0)
               .items_center()
-              .child(Connector(t, index, count, linkTo(herd, member)))
-              .child(div().w_full().px(6).flex().justify_center().child(SessionBox(t, member, live, actions)))
+              .child(Connector(t, index, count, linkLine(linkTo(herd, member))))
+              .child(div().w_full().px(6).flex().justify_center().child(SessionBox(t, member, live, actions, { member: true })))
               .when(actions.picking === member.id, (el) =>
                 el.child(div().pt(6).px(6).child(TabPicker(t, member.id, sessions, live, actions))),
-              ),
+              )
+              .children([AgentStack(t, member, live, actions)].filter(Boolean)),
+          ),
+        )
+        .children(
+          ownAgents.map((agent, index) =>
+            v_flex()
+              .flex_grow(1)
+              .flex_basis(AGENT_WIDTH)
+              .min_w(0)
+              .items_center()
+              .child(Connector(t, herd.members.length + index, count, agentLine(agent)))
+              .child(AgentTree(t, agent, herd.herdsman, live)),
           ),
         ),
     )
+    .when(earlier.length > 0, (el) => el.child(div().pt(8).child(EarlierToggle(t, herd.herdsman, earlier.length, open, actions))))
     .when(others.length > 0, (el) =>
       el.child(
         v_flex()
@@ -348,6 +521,7 @@ function GrazingCard(t, session, live, actions) {
             .child(
               div().flex_1().min_w(0).truncate().text_size(12).font_medium().text_color(t.foreground).child(session.name),
             )
+            .child(RoleIcon(t, `hg-role-${session.id}`, "grazing"))
             .when(Boolean(agent), (el) =>
               el.child(Avatar(t, `hg-av-${session.id}`, agent.space, agent.space_name, 15).tooltip(agent.space_name)),
             ),
@@ -366,7 +540,8 @@ function GrazingCard(t, session, live, actions) {
 
 /**
  * The Herds tab. `model` is loadHerds()'s result, or null before the first load.
- * `actions`: `{ model, loading, picking, pick(sessionId|null, cx), link(sessionId, address|null, cx) }`.
+ * `actions`: `{ model, loading, picking, pick(sessionId|null, cx), link(sessionId, address|null, cx),
+ * expandedAgents: Set<sessionId>, toggleAgents(sessionId, cx) }`.
  */
 export function Herds(model, actions) {
   const t = theme();
@@ -376,6 +551,7 @@ export function Herds(model, actions) {
   const shown = [...herds.flatMap((herd) => [herd.herdsman, ...herd.members]), ...grazing];
   const working = shown.filter((session) => statusOf(session, live) === "working").length;
   const blocked = shown.filter((session) => statusOf(session, live) === "blocked").length;
+  const agentsWorking = shown.flatMap((session) => session.agents ?? []).filter((agent) => agent.status === "working").length;
   return v_flex()
     .gap(14)
     .child(
@@ -383,13 +559,18 @@ export function Herds(model, actions) {
         "herds",
         "Herds",
         [
-          Chip(`${shown.length} sessions · ${working} working · ${blocked} need you`, { color: t.dim }),
+          Chip(
+            `${shown.length} sessions · ${working} working · ${blocked} need you${
+              agentsWorking ? ` · ${agentsWorking} agents working` : ""
+            }`,
+            { color: t.dim },
+          ),
         ],
         v_flex()
           .gap(18)
           .when(!herds.length, (el) =>
             el.child(
-              Note("No herds: no session has messaged another or made a worktree for one."),
+              Note("No herds: no session has messaged another, made a worktree for one, or started agents lately."),
             ),
           )
           .children(herds.map((herd) => HerdGraph(t, herd, model.sessions, live, actions))),
