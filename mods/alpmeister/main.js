@@ -313,7 +313,7 @@ export default class Alpmeister extends View {
           this.persist(cx);
         },
         {
-          tooltip: pinned ? "Unpin from the Lineup" : "Pin to the Lineup",
+          tooltip: pinned ? "Take off today's trail" : "Add to today's trail",
           color: pinned ? theme().accent : undefined,
         },
       );

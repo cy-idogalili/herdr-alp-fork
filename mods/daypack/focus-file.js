@@ -1,4 +1,4 @@
-// The Lineup items, read from and written to the focus file Alpmeister keeps at
+// Today's trail items, read from and written to the focus file Alpmeister keeps at
 // ~/.local/state/alp/focus.json: `{ items: [item, ...] }`. Mods cannot import across folders,
 // so this is the Daypack's own small reader of that format.
 

@@ -87,37 +87,15 @@
       "type": "column",
       "children": [
         {
-          "id": "topbar",
-          "type": "row",
+          "id": "tabs",
+          "type": "block",
+          "content": {
+            "mod": "alp-tabs"
+          },
           "size": {
             "px": 42
           },
-          "children": [
-            {
-              "id": "tabs",
-              "type": "block",
-              "content": {
-                "mod": "tabs"
-              },
-              "size": {
-                "weight": 1
-              },
-              "window_drag": true
-            },
-            {
-              "id": "daypack-button",
-              "type": "block",
-              "size": {
-                "px": 40
-              },
-              "content": {
-                "mod": "daypack",
-                "props": {
-                  "button": true
-                }
-              }
-            }
-          ]
+          "window_drag": true
         },
         {
           "id": "work-body",

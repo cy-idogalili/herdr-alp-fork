@@ -19,7 +19,8 @@ What's inside:
 | `mods/pane-agent/` | pane header: icon, name, folder, model/effort/context chips, worktree, branch, status, split/zoom/close |
 | `mods/alp-agents/` | sidebar agents list: grouped or priority views, sub-agents under their parent, each Space shown by its avatar |
 | `mods/alpmeister/` | a team lead's start-of-day tab: a Dashboard of all your repos or one workspace (bugs by priority, triage, customer issues, nightly, priorities, milestone, team in flight), Herds, Daypack (focus, reviews, your PRs, your issues) and Settings |
-| `mods/daypack/` | Daypack: a right sidebar beside the terminals with today's Lineup items, shown or hidden from a Daypack button in the tab bar |
+| `mods/daypack/` | Daypack: a right sidebar beside the terminals with today's trail, shown or hidden from the Daypack button in the tab bar |
+| `mods/alp-tabs/` | the tab bar: Herdr's tabs with a sheep beside + that opens Alpmeister, and the Daypack button after Changes |
 | `plugins/alp/` | Claude Code plugin that writes the status files the mods read |
 | `RECIPE.md` | the brief to rebuild it from scratch (herdr.dev format) |
 | `sync.sh` | copy the layout and mods into Herdr's home, or pull live edits back |
@@ -78,7 +79,8 @@ Restart running Claude sessions after installing or changing the plugin.
 ## Alpmeister
 
 In an alp cooperative, the Alpmeister plans the season and oversees the alp, while the senn
-works the herd. The `alpmeister` mod is that view for a team lead, opened as a tab:
+works the herd. The `alpmeister` mod is that view for a team lead, opened as a tab: click the
+sheep beside + in the tab bar (it goes to the space's Alpmeister tab when one is open), or
 
 ```sh
 herdr-app do tab.new '{"mod":"alpmeister","name":"Alpmeister"}'
