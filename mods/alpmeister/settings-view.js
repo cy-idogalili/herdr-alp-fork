@@ -22,6 +22,9 @@ const splitList = (text) =>
 /** How a list setting shows in its text field. */
 const joinList = (values) => (values ?? []).join(", ");
 
+/** How many options an open dropdown lists before asking you to type to narrow it. */
+const PICKER_ROWS = 8;
+
 /** The nightly run triggers a workflow can be counted from. */
 const NIGHTLY_EVENTS = ["schedule", "workflow_dispatch", "push"];
 
@@ -534,95 +537,180 @@ export class SettingsForm {
   }
 
   /**
+   * A dropdown's open list. It never scrolls on its own, so it cannot fight the page's scroll:
+   * it shows the first PICKER_ROWS matches of the filter, and says how many more there are.
+   * @param {object} t The theme.
+   * @param {string} key The dropdown's key, for row ids.
+   * @param {{ value: any, label: string, sub?: string }[]} options Every option.
+   * @param {(option: object, index: number) => object} row Draws one option's row.
+   * @param {object[]} [footer] Elements under the rows, such as a Done button.
+   * @returns {object}
+   */
+  optionList(t, key, options, row, footer = []) {
+    const filter = this.inputs.filter.value().trim().toLowerCase();
+    const matching = options.filter(
+      (option) => !filter || `${option.label} ${option.sub ?? ""}`.toLowerCase().includes(filter),
+    );
+    const more = matching.length - PICKER_ROWS;
+    return v_flex()
+      .id(`pk-list-${key}`)
+      .w_full()
+      .p(4)
+      .gap(2)
+      .rounded(6)
+      .border_1()
+      .border_color(t.border)
+      .bg(t.background)
+      .when(options.length > PICKER_ROWS, (el) => el.child(this.text(t, "filter")))
+      .when(!matching.length, (el) => el.child(div().px(6).py(4).child(Note("Nothing matches."))))
+      .children(matching.slice(0, PICKER_ROWS).map(row))
+      .when(more > 0, (el) => el.child(div().px(6).py(4).child(Note(`${more} more: type to narrow the list.`))))
+      .when(footer.length > 0, (el) => el.child(h_flex().pt(2).gap(6).children(footer)));
+  }
+
+  /** One option row in a dropdown's list: an optional lead (a checkbox), the label, its note. */
+  optionRow(t, id, option, { lead, accent = false, onClick }) {
+    return h_flex()
+      .id(id)
+      .w_full()
+      .flex_none()
+      .h(26)
+      .px(6)
+      .gap(8)
+      .items_center()
+      .rounded(5)
+      .text_size(12)
+      .cursor_pointer()
+      .text_color(accent ? t.accent : t.foreground)
+      .hover((style) => style.bg(t.hover))
+      .on_click((_event, cx) => {
+        cx.stop_propagation();
+        onClick(cx);
+      })
+      .when(Boolean(lead), (el) => el.child(lead))
+      .child(div().flex_1().min_w(0).truncate().child(option.label))
+      .when(Boolean(option.sub), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(option.sub)));
+  }
+
+  /** A dropdown's trigger: the shown text and an arrow, accented while open. */
+  trigger(t, key, text, { dim = false, width } = {}) {
+    const open = this.open === key;
+    return h_flex()
+      .id(`pk-${key}`)
+      .when(!width, (el) => el.w_full())
+      .when(Boolean(width), (el) => el.w(width))
+      .h(28)
+      .px(8)
+      .gap(6)
+      .items_center()
+      .rounded(6)
+      .border_1()
+      .border_color(open ? t.accent : t.input)
+      .bg(t.background)
+      .cursor_pointer()
+      .on_click((_event, cx) => this.togglePicker(key, cx))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(dim ? t.dim : t.foreground).child(text))
+      .child(div().text_size(10).text_color(t.dim).child(open ? "▲" : "▼"));
+  }
+
+  /**
    * A dropdown: the current choice, and under it the options while open, with a filter when
    * there are many. `options`: `[{ value, label, sub? }]`; a null value is "none".
    */
   picker(t, key, current, options, onPick, { placeholder = "Choose…" } = {}) {
-    const open = this.open === key;
     const chosen = options.find((option) => JSON.stringify(option.value) === JSON.stringify(current));
-    const filter = this.inputs.filter.value().trim().toLowerCase();
-    const filtering = options.length > 8;
-    const shown = open
-      ? options.filter((option) => !filter || `${option.label} ${option.sub ?? ""}`.toLowerCase().includes(filter))
-      : [];
-    const rowHeight = 26;
+    const label = chosen ? `${chosen.label}${chosen.sub ? `  ·  ${chosen.sub}` : ""}` : placeholder;
     return v_flex()
       .w_full()
       .gap(4)
-      .child(
-        h_flex()
-          .id(`pk-${key}`)
-          .w_full()
-          .h(28)
-          .px(8)
-          .gap(6)
-          .items_center()
-          .rounded(6)
-          .border_1()
-          .border_color(open ? t.accent : t.input)
-          .bg(t.background)
-          .cursor_pointer()
-          .on_click((_event, cx) => this.togglePicker(key, cx))
-          .child(
-            div()
-              .flex_1()
-              .min_w(0)
-              .truncate()
-              .text_size(12)
-              .text_color(chosen ? t.foreground : t.dim)
-              .child(chosen?.label ?? placeholder),
-          )
-          .when(Boolean(chosen?.sub), (el) => el.child(div().text_size(10.5).text_color(t.dim).child(chosen.sub)))
-          .child(div().text_size(10).text_color(t.dim).child(open ? "▲" : "▼")),
-      )
-      .when(open, (el) =>
+      .child(this.trigger(t, key, label, { dim: !chosen }))
+      .when(this.open === key, (el) =>
         el.child(
-          v_flex()
-            .w_full()
-            .p(4)
-            .gap(4)
-            .rounded(6)
-            .border_1()
-            .border_color(t.border)
-            .bg(t.background)
-            .when(filtering, (inner) => inner.child(this.text(t, "filter")))
-            .child(
-              v_flex()
-                .id(`pk-list-${key}`)
-                .w_full()
-                .h(Math.max(rowHeight, Math.min(shown.length, 10) * rowHeight))
-                .overflow_y_scrollbar()
-                .when(!shown.length, (inner) => inner.child(Note("Nothing matches.")))
-                .children(
-                  shown.map((option, index) =>
-                    h_flex()
-                      .id(`pk-${key}-${index}`)
-                      .w_full()
-                      .flex_none()
-                      .h(rowHeight)
-                      .px(6)
-                      .gap(8)
-                      .items_center()
-                      .rounded(5)
-                      .text_size(12)
-                      .cursor_pointer()
-                      .text_color(option === chosen ? t.accent : t.foreground)
-                      .hover((style) => style.bg(t.hover))
-                      .on_click((_event, cx) => {
-                        cx.stop_propagation();
-                        this.open = null;
-                        onPick(option.value, cx);
-                        cx.notify();
-                      })
-                      .child(div().flex_1().min_w(0).truncate().child(option.label))
-                      .when(Boolean(option.sub), (row) =>
-                        row.child(div().flex_none().text_size(10.5).text_color(t.dim).child(option.sub)),
-                      ),
-                  ),
-                ),
-            ),
+          this.optionList(t, key, options, (option, index) =>
+            this.optionRow(t, `pk-${key}-${index}`, option, {
+              accent: option === chosen,
+              onClick: (cx) => {
+                this.open = null;
+                onPick(option.value, cx);
+                cx.notify();
+              },
+            }),
+          ),
         ),
       );
+  }
+
+  /**
+   * A dropdown with a checkbox per option. It stays open while you tick, until Done.
+   * @param {object} t The theme.
+   * @param {string} key The dropdown's key.
+   * @param {string} label The trigger's text.
+   * @param {{ value: string, label: string, sub?: string }[]} options Every option.
+   * @param {(value: string) => boolean} isChecked Whether an option is ticked.
+   * @param {(value: string, cx: object) => void} onToggle Ticks or unticks one.
+   * @returns {object}
+   */
+  multiPicker(t, key, label, options, isChecked, onToggle) {
+    return v_flex()
+      .w_full()
+      .gap(4)
+      .child(this.trigger(t, key, label, { dim: true, width: 220 }))
+      .when(this.open === key, (el) =>
+        el.child(
+          this.optionList(
+            t,
+            key,
+            options,
+            (option, index) =>
+              this.optionRow(t, `pk-${key}-${index}`, option, {
+                lead: this.check(t, `pk-${key}-check-${index}`, isChecked(option.value), (cx) => {
+                  onToggle(option.value, cx);
+                  cx.notify();
+                }),
+                onClick: (cx) => {
+                  onToggle(option.value, cx);
+                  cx.notify();
+                },
+              }),
+            [TextButton(`pk-${key}-done`, "Done", (cx) => this.togglePicker(key, cx))],
+          ),
+        ),
+      );
+  }
+
+  /** A chip with a × that removes it. */
+  removableChip(t, id, label, onRemove, tooltip) {
+    const chip = h_flex()
+      .id(id)
+      .flex_none()
+      .h(22)
+      .pl(8)
+      .pr(2)
+      .gap(2)
+      .items_center()
+      .rounded(6)
+      .bg(t.hover)
+      .text_size(11.5)
+      .text_color(t.foreground)
+      .child(label)
+      .child(
+        h_flex()
+          .id(`${id}-x`)
+          .size(18)
+          .items_center()
+          .justify_center()
+          .rounded(4)
+          .text_color(t.dim)
+          .cursor_pointer()
+          .hover((style) => style.bg(t.selected).text_color(t.foreground))
+          .on_click((_event, cx) => {
+            cx.stop_propagation();
+            onRemove(cx);
+            cx.notify();
+          })
+          .child("×"),
+      );
+    return tooltip ? chip.tooltip(tooltip) : chip;
   }
 
   // --- account ---------------------------------------------------------------------------------
@@ -632,24 +720,23 @@ export class SettingsForm {
     const found = this.discovery?.repos ?? [];
     const names = new Set(found.map((repo) => repo.repo));
     const account = this.draft.account;
-    const extra = [...(Array.isArray(account.repos) ? account.repos : []), ...Object.keys(account.folders)]
-      .filter((repo) => !names.has(repo))
-      .map((repo) => ({ repo, isArchived: false, isPrivate: false, isFork: false, unknown: true }));
-    return [...found, ...[...new Set(extra.map((repo) => repo.repo))].map((repo) => extra.find((e) => e.repo === repo))];
+    const extra = [...(Array.isArray(account.repos) ? account.repos : []), ...account.exclude, ...Object.keys(account.folders)]
+      .filter((repo) => !names.has(repo));
+    return [...found, ...[...new Set(extra)].map((repo) => ({ repo, isArchived: false, isPrivate: false, isFork: false }))];
+  }
+
+  /** A repository as a dropdown option: its name, and what sets it apart. */
+  repoOption(repo) {
+    const notes = [repo.isPrivate && "private", repo.isFork && "fork", repo.isArchived && "archived"].filter(Boolean);
+    return { value: repo.repo, label: repo.repo, sub: notes.join(", ") };
   }
 
   /** Puts a repository in or out of scope. */
-  toggleScope(repo) {
+  toggleScope(name) {
     const account = this.draft.account;
-    if (Array.isArray(account.repos)) {
-      account.repos = account.repos.includes(repo.repo)
-        ? account.repos.filter((name) => name !== repo.repo)
-        : [...account.repos, repo.repo];
-    } else {
-      account.exclude = account.exclude.includes(repo.repo)
-        ? account.exclude.filter((name) => name !== repo.repo)
-        : [...account.exclude, repo.repo];
-    }
+    const flip = (list) => (list.includes(name) ? list.filter((value) => value !== name) : [...list, name]);
+    if (Array.isArray(account.repos)) account.repos = flip(account.repos);
+    else account.exclude = flip(account.exclude);
   }
 
   /** Switches between every repository and only the picked ones, keeping what is in scope now. */
@@ -669,83 +756,137 @@ export class SettingsForm {
     }
   }
 
+  /**
+   * The repositories in scope, as chips with a remove ×, and the dropdown that adds them. With
+   * all your repositories in scope, the chips are the ones left out instead.
+   */
+  scopeChips(t) {
+    const account = this.draft.account;
+    const picked = Array.isArray(account.repos);
+    const repos = this.knownRepos();
+    const eligible = repos.filter((repo) => picked || account.archived || !repo.isArchived);
+    const options = [
+      ...eligible.filter((repo) => !repo.isArchived),
+      ...eligible.filter((repo) => repo.isArchived),
+    ].map((repo) => this.repoOption(repo));
+    const chosen = picked ? account.repos : account.exclude;
+    const chips = chosen.map((name) =>
+      this.removableChip(
+        t,
+        `st-chip-${name}`,
+        name,
+        () => this.toggleScope(name),
+        picked ? "Leave it out" : "Put it back in scope",
+      ),
+    );
+    return v_flex()
+      .gap(8)
+      .when(!picked && chosen.length > 0, (el) => el.child(div().text_size(11).text_color(t.dim).child("Left out")))
+      .when(chips.length > 0, (el) => el.child(h_flex().flex_wrap().gap(6).children(chips)))
+      .when(picked && !chips.length, (el) => el.child(Note("No repositories picked yet.")))
+      .child(
+        this.multiPicker(
+          t,
+          "scope",
+          picked ? "Add repos…" : "Leave repos out…",
+          options,
+          (name) => chosen.includes(name),
+          (name) => this.toggleScope(name),
+        ),
+      );
+  }
+
   /** Clones found on disk for repositories with no folder set. */
   suggestedFolders() {
     const folders = this.draft.account.folders;
     return Object.entries(this.clones ?? {}).filter(([repo]) => !folders[repo]);
   }
 
-  /** One repository in the scope list: in scope, its name and badges, its local folder. */
-  repoRow(t, repo) {
+  /** Lets you pick a repository's folder with the system folder picker. */
+  chooseFolder(repo, cx) {
+    cx.spawn(async (cx) => {
+      const chosen = await pickFolder({ prompt: "Use this folder" });
+      if (chosen) {
+        this.draft.account.folders[repo] = tildePath(chosen);
+        cx.notify();
+      }
+    });
+  }
+
+  /** One repository and its folder, or a clone found for it, with what can be done about it. */
+  folderRow(t, repo, folder, found) {
     const account = this.draft.account;
-    const picked = Array.isArray(account.repos);
-    const scoped = inScope(account, { nameWithOwner: repo.repo, isArchived: repo.isArchived });
-    const blocked = !picked && repo.isArchived && !account.archived;
-    const folder = account.folders[repo.repo];
-    const found = !folder ? this.clones?.[repo.repo] : null;
     return h_flex()
-      .id(`st-repo-${repo.repo}`)
+      .id(`st-folder-row-${repo}`)
       .w_full()
-      .flex_none()
-      .h(30)
-      .gap(8)
+      .h(28)
       .px(6)
+      .gap(10)
       .items_center()
       .rounded(6)
       .hover((style) => style.bg(t.hover))
-      .child(
-        this.check(
-          t,
-          `st-scope-${repo.repo}`,
-          scoped,
-          (cx) => {
-            this.toggleScope(repo);
-            cx.notify();
-          },
-          { disabled: blocked, tooltip: blocked ? "Archived: turn on Include archived first" : undefined },
-        ),
-      )
+      .child(div().w(260).flex_none().truncate().text_size(12).text_color(t.foreground).child(repo))
       .child(
         div()
           .flex_1()
           .min_w(0)
           .truncate()
-          .text_size(12)
-          .text_color(scoped ? t.foreground : t.dim)
-          .child(repo.repo),
-      )
-      .when(repo.isPrivate, (el) => el.child(Chip("private", { color: t.dim })))
-      .when(repo.isArchived, (el) => el.child(Chip("archived", { color: t.dim })))
-      .when(repo.isFork, (el) => el.child(Chip("fork", { color: t.dim })))
-      .when(Boolean(folder), (el) =>
-        el.child(div().flex_none().max_w(260).truncate().text_size(11).text_color(t.muted).child(folder)),
+          .text_size(11.5)
+          .text_color(folder ? t.muted : t.dim)
+          .child(folder ?? `found ${found}`),
       )
       .when(Boolean(found), (el) =>
         el.child(
-          TextButton(`st-use-${repo.repo}`, `Use ${found}`, (cx) => {
-            account.folders[repo.repo] = found;
+          TextButton(`st-use-${repo}`, "Use", (cx) => {
+            account.folders[repo] = found;
             cx.notify();
           }, { tooltip: "A local clone of this repository" }),
         ),
       )
-      .child(
-        TextButton(`st-folder-${repo.repo}`, folder ? "Change" : "Folder…", (cx) => {
-          cx.spawn(async (cx) => {
-            const chosen = await pickFolder({ prompt: "Use this folder" });
-            if (chosen) {
-              account.folders[repo.repo] = tildePath(chosen);
-              cx.notify();
-            }
-          });
-        }, { tooltip: "The local clone the Claude buttons open in" }),
-      )
       .when(Boolean(folder), (el) =>
+        el
+          .child(TextButton(`st-change-${repo}`, "Change", (cx) => this.chooseFolder(repo, cx)))
+          .child(
+            TextButton(`st-forget-${repo}`, "×", (cx) => {
+              delete account.folders[repo];
+              cx.notify();
+            }, { tooltip: "Forget this folder" }),
+          ),
+      );
+  }
+
+  /** Each repository's local clone: the ones set, clones found for others, and a dropdown to set one. */
+  foldersSection(t) {
+    const account = this.draft.account;
+    const set = Object.entries(account.folders).sort(([first], [second]) => first.localeCompare(second));
+    const suggestions = this.suggestedFolders();
+    const without = this.knownRepos()
+      .filter((repo) => !account.folders[repo.repo] && !repo.isArchived)
+      .map((repo) => this.repoOption(repo));
+    return v_flex()
+      .gap(6)
+      .child(this.heading(t, "Local folders"))
+      .child(Note("Where each repository's Claude buttons open their tab. Without one, the tab opens in the space's folder."))
+      .children(set.map(([repo, folder]) => this.folderRow(t, repo, folder, null)))
+      .children(suggestions.map(([repo, found]) => this.folderRow(t, repo, null, found)))
+      .when(suggestions.length > 1, (el) =>
         el.child(
-          TextButton(`st-unfolder-${repo.repo}`, "×", (cx) => {
-            delete account.folders[repo.repo];
-            cx.notify();
-          }, { tooltip: "Forget this folder" }),
+          h_flex().child(
+            TextButton("st-use-all", `Use all ${suggestions.length} found`, (cx) => {
+              for (const [repo, folder] of suggestions) account.folders[repo] = folder;
+              cx.notify();
+            }),
+          ),
         ),
+      )
+      .child(
+        div()
+          .w(320)
+          .child(
+            this.picker(t, "folder-for", null, without, (repo, cx) => this.chooseFolder(repo, cx), {
+              placeholder: "Set a folder for…",
+            }),
+          ),
       );
   }
 
@@ -753,13 +894,9 @@ export class SettingsForm {
   accountCard(t) {
     const account = this.draft.account;
     const picked = Array.isArray(account.repos);
-    const repos = this.knownRepos();
-    // Archived repositories are listed only when they can be in scope.
-    const listed = repos.filter((repo) => picked || account.archived || !repo.isArchived);
-    const hiddenArchived = repos.length - listed.length;
-    const scopedCount = listed.filter((repo) => inScope(account, { nameWithOwner: repo.repo, isArchived: repo.isArchived })).length;
-    const suggestions = this.suggestedFolders();
-    const rowHeight = 30;
+    const scopedCount = this.knownRepos().filter((repo) =>
+      inScope(account, { nameWithOwner: repo.repo, isArchived: repo.isArchived }),
+    ).length;
     return Card(
       "st-account",
       "Your GitHub",
@@ -768,70 +905,53 @@ export class SettingsForm {
         .gap(10)
         .when(Boolean(this.discoverError), (el) => el.child(Note(`GitHub: ${this.discoverError}`, t.blocked)))
         .when(Boolean(this.discovery?.warning), (el) => el.child(Note(this.discovery.warning, t.working)))
+        .when(this.discovering && !this.discovery, (el) => el.child(Note("Reading your repositories…")))
         .child(
           this.field(
             t,
             "Repos in scope",
-            h_flex()
-              .gap(10)
-              .items_center()
-              .child(
-                this.pills(
-                  t,
-                  "st-scope-mode",
-                  [
-                    {
-                      value: "all",
-                      label: "All my repos",
-                      tooltip:
-                        "Every repository you own, collaborate on or reach through an organization; new ones join on their own",
-                    },
-                    { value: "picked", label: "Only the ones I pick", tooltip: "Just the checked repositories" },
-                  ],
-                  picked ? "picked" : "all",
-                  (mode, cx) => {
-                    this.setScopeMode(mode);
-                    cx.notify();
-                  },
-                ),
-              )
-              .when(!picked, (el) =>
-                el.child(
-                  Toggle("st-archived", "Include archived", account.archived, (cx) => {
-                    account.archived = !account.archived;
-                    cx.notify();
-                  }),
-                ),
-              )
-              .child(div().flex_1())
-              .child(Chip(`${scopedCount} in scope`, { color: t.muted })),
-            "The Dashboard's All repos view and the Daypack lists cover these. Uncheck one to leave it out.",
-          ),
-        )
-        .when(suggestions.length > 0, (el) =>
-          el.child(
-            h_flex()
+            v_flex()
               .gap(8)
-              .items_center()
-              .child(Note(`Found ${suggestions.length} local clone${suggestions.length === 1 ? "" : "s"} with no folder set.`))
               .child(
-                TextButton("st-use-all", "Use them all", (cx) => {
-                  for (const [repo, folder] of suggestions) account.folders[repo] = folder;
-                  cx.notify();
-                }),
-              ),
+                h_flex()
+                  .gap(10)
+                  .items_center()
+                  .child(
+                    this.pills(
+                      t,
+                      "st-scope-mode",
+                      [
+                        {
+                          value: "all",
+                          label: "All my repos",
+                          tooltip:
+                            "Every repository you own, collaborate on or reach through an organization; new ones join on their own",
+                        },
+                        { value: "picked", label: "Only the ones I pick", tooltip: "Just the repositories you add" },
+                      ],
+                      picked ? "picked" : "all",
+                      (mode, cx) => {
+                        this.setScopeMode(mode);
+                        cx.notify();
+                      },
+                    ),
+                  )
+                  .when(!picked, (el) =>
+                    el.child(
+                      Toggle("st-archived", "Include archived", account.archived, (cx) => {
+                        account.archived = !account.archived;
+                        cx.notify();
+                      }),
+                    ),
+                  )
+                  .child(div().flex_1())
+                  .child(Chip(`${scopedCount} in scope`, { color: t.muted })),
+              )
+              .child(this.scopeChips(t)),
+            "The Dashboard's All repos view and the Daypack lists cover these.",
           ),
         )
-        .child(
-          v_flex()
-            .id("st-repo-list")
-            .w_full()
-            .h(Math.max(rowHeight, Math.min(listed.length, 12) * rowHeight))
-            .overflow_y_scrollbar()
-            .when(!listed.length, (el) => el.child(Note(this.discovering ? "Reading your repositories…" : "No repositories found.")))
-            .children(listed.map((repo) => this.repoRow(t, repo))),
-        )
-        .when(hiddenArchived > 0, (el) => el.child(Note(`${hiddenArchived} archived not listed.`)))
+        .child(this.foldersSection(t))
         .child(this.heading(t, "Claude buttons"))
         .child(
           this.field(
@@ -863,7 +983,9 @@ export class SettingsForm {
         )
         .when(this.advancedAccount, (el) =>
           el
-            .child(this.field(t, "Review requests", this.text(t, "reviewQuery"), "GitHub issue searches, across everything you can see"))
+            .child(
+              this.field(t, "Review requests", this.text(t, "reviewQuery"), "GitHub issue searches, across everything you can see"),
+            )
             .child(this.field(t, "My PRs", this.text(t, "myPrsQuery")))
             .child(this.field(t, "My issues", this.text(t, "mineQuery"))),
         ),
