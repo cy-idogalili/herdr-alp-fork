@@ -6,6 +6,7 @@ import { v_flex } from "gpui-base";
 import { theme } from "herdr";
 import {
   Card,
+  itemKey,
   Chip,
   GroupHeading,
   NeedsYou,
@@ -22,7 +23,7 @@ const GROUP_LIMIT = 5;
 
 /** The chip for a linked PR: its review state in the pane header's colors. */
 function prChip(t, item, pr) {
-  const id = `if-pr-${item.number}-${pr.number}`;
+  const id = `if-pr-${itemKey(item)}-${pr.number}`;
   if (pr.reviewDecision === "CHANGES_REQUESTED")
     return NeedsYou(`#${pr.number} changes`).id(id).tooltip("Changes requested");
   if (pr.reviewDecision === "APPROVED")
@@ -98,7 +99,7 @@ export function InFlight(config, model, options) {
               chips.push(
                 Chip(item.iteration ?? "No iteration", {
                   color: warning,
-                  id: `if-it-${item.number}`,
+                  id: `if-it-${itemKey(item)}`,
                   tooltip: "Not in the current iteration",
                 }),
               );
@@ -111,12 +112,13 @@ export function InFlight(config, model, options) {
             if (item.milestone) chips.push(Chip(item.milestone, { color: t.dim }));
             if (item.since) chips.push(Chip(`${ago(now - item.since)} in status`, { color: t.dim }));
             for (const pr of item.prs) chips.push(prChip(t, item, pr));
-            return Row(`if-${item.number}`, {
+            return Row(`if-${itemKey(item)}`, {
               number: item.number,
+              repo: item.repo !== config.repo ? item.repo : null,
               title: item.title,
               url: item.url,
               chips,
-              buttons: [options.pinButton({ kind: "issue", number: item.number, title: item.title, url: item.url, status: item.status })],
+              buttons: [options.pinButton({ kind: "issue", ...item })],
             });
           }),
           ...(more > 0

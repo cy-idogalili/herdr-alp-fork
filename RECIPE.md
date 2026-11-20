@@ -68,13 +68,40 @@ Left to right:
 A tab mod, `mods/alpmeister`, for a team lead's start of day. It is not placed by the layout:
 open it with `tab.new {mod: "alpmeister"}`.
 
+- **Settings** live in `~/.config/alp/alpmeister.json`, written by the Settings tab, in two parts:
+  - `account`: your GitHub as a whole. `repos` is `"all"` (every repository you own,
+    collaborate on or reach through an organization, archived ones only with `archived`, less
+    `exclude`) or a list of `owner/name`. Also the Claude prompts (`launch.issue`, `launch.pr`,
+    with `{repo}` and `{number}`), each repository's local clone (`folders`), and the @me
+    searches the Daypack lists (`queries.review`, `queries.mine`, `queries.myPrs`).
+  - `workspaces`: each a `repo`, a project `board` (`owner`, `number`, `statusField`,
+    `iterationField`, on a user or an organization), or both, with its own `statuses`,
+    `notStarted`, `inFlight`, `mineHidden`, `queries.triage`, `bugs`, `spotlight`, `customer`
+    and `nightly`.
+  - No file means `account.repos: "all"` and no workspaces. A file in the earlier one-repo
+    shape (top-level `repo` and `project`) reads as one workspace, its `launch.folder` as that
+    repository's folder.
+
 - **What you see**, top to bottom on the `canvas` background, 18px padding, cards with 10px
   radius and a 1px `border`:
-  - A header: three pill tabs, Dashboard, Herds and "Daypack · N" (N open focus items), then
-    "Alpmeister" (18px semibold), "updated 4m ago" in `dim` (`working` after 2 hours), and a
-    Refresh text button. Each copy remembers its tab in localStorage; `props.tab` opens a copy
-    on a given tab (`tab.new {mod: "alpmeister", props: {tab: "herds"}}`).
-  - **Dashboard**, top to bottom:
+  - A header: four pill tabs, Dashboard, Herds, "Daypack · N" (N open focus items) and Settings
+    ("Settings ·" with unsaved edits), then "Alpmeister" (18px semibold), "updated 4m ago" in
+    `dim` (`working` after 2 hours), and a Refresh text button. Each copy remembers its tab and
+    workspace in localStorage; `props.tab` and `props.workspace` open a copy on a given one
+    (`tab.new {mod: "alpmeister", props: {tab: "dashboard", workspace: "Team"}}`, `""` for All
+    repos).
+  - **Dashboard**: with any workspaces, a row of pills on top switches between them and "All
+    repos" (the last one). Without, it shows All repos alone.
+  - **All repos**, top to bottom:
+    - Four tiles: review requests, your open PRs (with how many are approved or have changes
+      requested), your assigned issues, and red checks (default branches failing, your PRs
+      failing).
+    - The Repos card: every repository in scope, most recently pushed first, 12 rows then
+      "Show N more", with a "With open work" toggle. A row: `owner/name` (dim without open
+      work), then chips for private, archived, "local" (a folder is set), open issues, open PRs,
+      the default branch's checks ("main passing", or `Needs you` style "main failing"), and
+      "pushed 3d ago". A click opens the repository.
+  - **A workspace**, top to bottom; the repository's cards show only with a `repo`:
     - Four tiles, in one row when the tab is at least 1000px wide, else two by two: open bugs by
       priority (total, a strip and a chip per priority, counted from the priority issue field),
       triage bugs, open customer issues (any label whose name contains `customer.labelMatch`,
@@ -91,30 +118,60 @@ open it with `tab.new {mod: "alpmeister"}`.
         "X of Y" sub-issues, its status, and an Unassigned flag. Rows show no due dates.
       - 8 rows, then "Show N more".
       - Below the columns, "To discuss": the issues in `spotlight.holdStatus` in either milestone.
+        Left out with no board, as there are no statuses.
     - The next milestone card: its title (20px) with "1 of 12 closed", a usage-limits style bar
       (closed share, tick at the time gone since the previous milestone's due date, `working`
       when behind the tick), a 6px strip of board-status segments, a chip per status, and
       `Needs you` style flags for unassigned issues and for `notStarted` issues (New, Todo by
-      default) in the last 7 days.
-  - Team in flight, full width: the board's open issues in the configured statuses, grouped in
+      default) in the last 7 days. With no board, the strip and chips are Open and Closed.
+  - With a board, Team in flight, full width: the board's open issues in the configured statuses, grouped in
     board order, with toggles for the next milestone and the current iteration, 5 rows per group with "Show N more". Flagged rows first: a row outside the
     current iteration gets a warning chip naming its iteration or "No iteration". Chips for
-    assignee, milestone, days in status and each linked PR's review state.
-  - **Daypack.** Today's focus across the top: a todo input, then Todos, PRs and Issues, each
-    under a heading with its open count. A row: checkbox, number, title, the issue's board
+    assignee, milestone, days in status and each linked PR's review state. An item from another
+    repository than the workspace's names it in a chip.
+  - With a repository and no board, Open PRs in its place: the repository's open PRs (drafts
+    dimmed), with author, review decision, checks and age, Pin and the Claude button.
+  - **Daypack**, across every repository in scope (with `"all"`, everything the searches find).
+    Today's focus across the top: a todo input, then Todos, PRs and Issues, each
+    under a heading with its open count. A row: checkbox, `repo#number`, title, the issue's board
     status or the PR's review decision (Approved, Changes Requested, In Review, or Merged or
     Closed), days since it was added (from the next day), a Claude button, Remove. Items stay
     until removed. Below it, two columns:
     - The PRs that need your attention (author, age, checks, Pin, Review), then My PRs: your
       open, non-draft PRs (`queries.myPrs`) with the review decision, checks and age (Pin,
       Review).
-    - Your issues grouped by status, current iteration only by default (Pin, Start).
+    - Your issues grouped by status, current iteration only by default (Pin, Start). An issue's
+      status comes from the first of its boards that a workspace is on, read with that
+      workspace's status field; the groups follow the workspaces' status order, and an issue is
+      hidden when its status is in its workspace's `mineHidden`. Issues on no workspace's board
+      go under "No status".
+    - Every row in these lists names its repository in a chip after the number.
+  - **Settings**: the settings file as a form. Nothing is written until Save, which writes over
+    the version it read (or refuses, when the file changed on disk: Revert loads it) and keeps
+    the previous file as `alpmeister.json.bak`. "Reload choices" reads GitHub and your disk again.
+    - "Your GitHub": All my repos (with Include archived) or Only the ones I pick, then a
+      checklist of your repositories (30px rows, scrolling after 12): the checkbox puts one in
+      or out of scope, badges for private, archived and fork, its local folder with Folder… (the
+      system folder picker) and ×. Clones found on disk (an `origin` on github.com, under
+      `~/projects`, `~/code`, `~/src` and the like, 4 levels deep) are offered with "Use
+      ~/path", or all at once. Then the Claude prompts, and the Daypack searches folded.
+    - "Workspaces": a pill per workspace and "+ Add workspace"; the one shown below: Name,
+      Repository and Project board (dropdowns: your repositories; the boards linked to the
+      repository, then every open board on your account and organizations), then with a board
+      its Status and Iteration fields, and a row per status (from the board, in board order):
+      Counts as Not started / In flight / Other, Hide in Your issues, On hold. Picking a board
+      takes its statuses and guesses their roles from their names. With a repository: the
+      nightly workflow (from the repository's workflows), its branch and the runs that count,
+      its checks (read only: edited in the file), then folded: bugs, triage, spotlight and
+      customer issue settings. "Remove workspace" asks for a second click.
 - **How it behaves:** a click on a row opens it on GitHub. Pin adds the row to today's focus. A
   pinned issue or PR checks itself once it closes or merges; each refresh reads every pick's
-  state, board status and review decision, checked or not, and keeps them on the item. Review and Start open, when configured, a tab running
-  `claude` with the configured command, in the space you are in. The tab starts in the live
-  folder of that space's first tab (its first pane's `cwd`) when it is `launch.folder` or inside
-  it, such as a worktree, else in `launch.folder`.
+  state, board status and review decision, checked or not, and keeps them on the item. A pick is
+  keyed by `kind-owner/name#number`; one pinned before workspaces gets its repository from its
+  URL. Review and Start open, when a prompt is set, a tab named `repo#12` running `claude` with
+  the prompt, in the space you are in. The tab starts in the live folder of that space's first
+  tab (its first pane's `cwd`) when it is the repository's folder or inside it, such as a
+  worktree, else in that folder, else in the space's own.
   The Daypack's Claude buttons do the same. It fetches when the tab opens and on Refresh only.
   - **Herds**: the Claude Code sessions on this machine and the links between them.
     - A Herds card: each herd as a graph. Its herdsman (the session that made the most links)
@@ -132,10 +189,16 @@ open it with `tab.new {mod: "alpmeister"}`.
       `workspace-chrome/git-branch.svg` and the name, on `hover`); a card without a branch
       keeps the room. A background session that no tab shows has a "Link a tab" button in its
       tab line; the picker opens below its box, or below the grid.
-- **Built from:** `config.js` (settings), `queries.js` (one GraphQL document for everything but
-  the nightly run), `data.js` (`gh api graphql`, `gh api` for workflow runs and jobs),
+- **Built from:** `config.js` (settings, defaults, the one-repo upgrade), `queries.js` (the
+  GraphQL documents: `ACCOUNT` for the repositories and @me searches, `WORKSPACE_REPO` and
+  `WORKSPACE_BOARD` per workspace, the board through `repositoryOwner(login:) … on
+  ProjectV2Owner` so user boards work, `DISCOVER`, `REPO_BOARDS` and `BOARD_FIELD_LIST` for
+  Settings), `data.js` (`gh api graphql`, `gh api` for workflow runs and jobs; the account and
+  each workspace load apart, each failing on its own; the cache carries `version: 2`),
   `focus.js` (the focus file, written with `writeTextFile` over the last read version),
-  `project.js`, `in-flight.js`, `my-day.js`, `focus-list.js`, `ui.js`, and `main.js`. Herds:
+  `account.js`, `project.js`, `spotlight.js`, `in-flight.js`, `my-day.js`, `focus-list.js`,
+  `settings-data.js` (discovery, clones, save), `settings-view.js` (the form), `ui.js`, and
+  `main.js`. Herds:
   `herds-data.js` reads Claude Code's files (it never writes them): `~/.claude/sessions/*.json`
   (live sessions, kept when `ps` finds their pid), `~/.claude/jobs/<id>/state.json` (a
   background session's state), and each live session's transcript
@@ -152,8 +215,15 @@ open it with `tab.new {mod: "alpmeister"}`.
   locale data, so dates are formatted by hand. Without a `mod.json` with `"place": "none"`, Herdr
   docks a copy of the mod into the shown layout the first time it sees the folder. Herds: `hc ls`
   has no foreground pid, so ask `hc get` per Claude terminal; `flex_shrink` takes a number.
-- **Done when:** `herdr-app check` passes, and the milestone headline, triage count, team PR
-  count and in-flight groups match the same queries run with `gh`.
+- **Watch out (workspaces):** the @me searches run once with no `repo:` qualifier and are
+  filtered to picked repositories in code, so the scope never meets GitHub's limits on query
+  length and operators. Account queries read every board's field values with their field names
+  (`fieldValues`), as each workspace's board may name its Status field differently. Text state
+  (`InputState`) is made once in `init`; each Settings text field writes only its own key, so
+  filling them for another workspace cannot mix two workspaces' values.
+- **Done when:** `herdr-app check` passes, the milestone headline, triage count, team PR count
+  and in-flight groups match the same queries run with `gh`, and with no settings file the
+  Dashboard lists your repositories.
 
 ## Done when
 
@@ -180,9 +250,10 @@ open it with `tab.new {mod: "alpmeister"}`.
     (`layout.hide`), then a "LINEUP" group
     with the items in sections by kind (Todos, PRs, Issues), each headed by its open count.
     A row holds the item's checkbox, title and number. A click on a title opens it on GitHub.
-  - An issue or PR row ends with the Claude button: it opens a Claude tab running the `launch`
-    command from Alpmeister's settings, as Alpmeister's Start and Review buttons do. The button
-    shows only when that command is set.
+  - An issue or PR row ends with the Claude button: it opens a Claude tab running the prompt from
+    Alpmeister's settings (`account.launch`, or `launch` in the one-repo shape) in the item's
+    repository folder (`account.folders`), as Alpmeister's Start and Review buttons do. The
+    button shows only when that prompt is set. The number shows as `repo#12`.
 - **State:**
   - The layout keeps whether the sidebar shows, as it does for the left sidebar.
   - It reads and writes `~/.local/state/alp/focus.json`, the file Alpmeister keeps. Mods cannot

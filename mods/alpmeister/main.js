@@ -1,16 +1,19 @@
-// Alpmeister: the team lead's start-of-day view, in two tabs. Dashboard: tiles for review
-// requests, open bugs by priority, triage bugs and the nightly run, then the next milestone
-// and the team's work in flight. Daypack: today's focus, then review requests, your PRs
-// and your issues.
+// Alpmeister: the team lead's start-of-day view, in four tabs.
+//   Dashboard  one workspace at a time (tiles for open bugs by priority, triage bugs, customer
+//              issues and the nightly run, the spotlight, the next milestone and the team in
+//              flight), or All repos: your GitHub as a whole.
+//   Herds      your Claude Code sessions and how they are linked.
+//   Daypack    today's focus, then review requests, your PRs and your issues across your repos.
+//   Settings   everything in ~/.config/alp/alpmeister.json, as a form.
 // It refreshes when it opens and from its button only.
-// Settings: ~/.config/alp/alpmeister.json (see alpmeister.example.json).
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import { checking, panes, props, readTextFile, run, setShared, shared, spaces, theme, watchFolder, writeTextFile, exec } from "herdr";
-import { loadConfig, stateDir } from "./config.js";
-import { loadOverview, loadPickStates } from "./data.js";
-import { FocusStore } from "./focus.js";
+import { AccountTiles, OpenPrs, Repos } from "./account.js";
+import { folderOf, loadConfig, normalizeConfig, stateDir } from "./config.js";
+import { MODEL_VERSION, loadAll, loadPickStates } from "./data.js";
+import { FocusStore, pickId } from "./focus.js";
 import { FocusList } from "./focus-list.js";
 import { loadHerds, saveTabLink, sessionsDir } from "./herds-data.js";
 import { Herds } from "./herds-view.js";
@@ -18,12 +21,16 @@ import { InFlight } from "./in-flight.js";
 import { MyIssues, MyPrs, Reviews } from "./my-day.js";
 import { Spotlight } from "./spotlight.js";
 import { Milestone, Tiles } from "./project.js";
-import { Card, ICONS, IconButton, Note, TextButton, ago } from "./ui.js";
+import { SettingsForm } from "./settings-view.js";
+import { Card, ICONS, IconButton, Note, TextButton, ago, fillPrompt, shortRepo } from "./ui.js";
 
 const STALE_AFTER = 2 * 3600000;
 const WIDE = 1000;
-const TABS = { dashboard: "dashboard", today: "today", herds: "herds" };
+const TABS = { dashboard: "dashboard", today: "today", herds: "herds", settings: "settings" };
 const TAB_KEY = "alpmeister.tab";
+const WORKSPACE_KEY = "alpmeister.workspace";
+/** The Dashboard switch's value for your GitHub as a whole. */
+const ALL_REPOS = "";
 const FOCUS_STAMP_KEY = "alp.focusStamp";
 
 const cachePath = () => `${stateDir()}/alpmeister-cache.json`;
@@ -39,12 +46,27 @@ function rememberedTab() {
   }
 }
 
+/** The workspace this copy's Dashboard showed last, or All repos. */
+function rememberedWorkspace() {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY) ?? ALL_REPOS;
+  } catch (error) {
+    console.log(`alpmeister: no remembered workspace: ${error}`);
+    return ALL_REPOS;
+  }
+}
+
 export default class Alpmeister extends View {
   init(_props, cx) {
     this.config = null;
     this.configError = null;
     this.model = null;
     this.loading = false;
+    this.refreshAgain = false;
+    this.configText = null;
+    // `props.workspace` opens a copy on that workspace's Dashboard; "" is All repos.
+    this.workspaceName = typeof props()?.workspace === "string" ? props().workspace : rememberedWorkspace();
+    this.reposActiveOnly = false;
     this.failure = null;
     this.milestoneOnly = false;
     this.teamIterationOnly = false;
@@ -64,11 +86,10 @@ export default class Alpmeister extends View {
     this.focusStamp = shared(FOCUS_STAMP_KEY) ?? null;
     this.input = InputState.new({ placeholder: "Add a todo and press Enter" });
     this.input.on("submit", (_event, cx) => this.addTodo(cx));
+    this.settings = new SettingsForm((cx) => this.refresh(cx));
     if (checking()) return;
     cx.spawn(async (cx) => {
-      const { config, error } = await loadConfig();
-      this.config = config ?? null;
-      this.configError = error ?? null;
+      await this.loadSettings();
       await this.focus.load();
       await this.loadCache();
       cx.notify();
@@ -134,12 +155,27 @@ export default class Alpmeister extends View {
     });
   }
 
+  /**
+   * Reads the settings file. The Settings form takes the new version too, unless it holds
+   * unsaved edits.
+   */
+  async loadSettings() {
+    const { config, error, text } = await loadConfig();
+    this.config = config ?? null;
+    this.configError = error ?? null;
+    this.configText = text;
+    if (config && !this.settings.dirty()) this.settings.load(config, text);
+    return config ?? null;
+  }
+
   /** Draws the last result at once, before the first refresh returns. */
   async loadCache() {
     const text = await readTextFile(cachePath());
     this.cacheSnapshot = text;
     try {
-      if (text && !this.model) this.model = JSON.parse(text);
+      const cached = text ? JSON.parse(text) : null;
+      // A cache from before workspaces has another shape: wait for the refresh instead.
+      if (cached?.version === MODEL_VERSION && !this.model) this.model = cached;
     } catch (error) {
       console.log(`alpmeister: cache unreadable, ignoring it: ${error}`);
     }
@@ -158,26 +194,33 @@ export default class Alpmeister extends View {
     this.cacheSnapshot = text;
   }
 
-  /** Fetches everything again. Ignored while a refresh runs. */
+  /**
+   * Reads the settings, then fetches everything again. A call while a refresh runs asks for
+   * one more after it, so a save is never fetched with the old settings.
+   */
   refresh(cx) {
-    if (this.loading) return;
+    if (this.loading) {
+      this.refreshAgain = true;
+      return;
+    }
     this.loading = true;
     cx.notify();
     cx.spawn(async (cx) => {
-      try {
-        const { config, error } = await loadConfig();
-        this.config = config ?? null;
-        this.configError = error ?? null;
-        if (config) {
-          this.model = await loadOverview(config);
-          this.failure = null;
-          await this.saveCache(this.model);
-          await this.checkPicks(config);
+      do {
+        this.refreshAgain = false;
+        try {
+          const config = await this.loadSettings();
+          if (config) {
+            this.model = await loadAll(config);
+            this.failure = null;
+            await this.saveCache(this.model);
+            await this.checkPicks(config);
+          }
+        } catch (error) {
+          this.failure = String(error?.message ?? error);
+          console.log(`alpmeister: refresh failed: ${this.failure}`);
         }
-      } catch (error) {
-        this.failure = String(error?.message ?? error);
-        console.log(`alpmeister: refresh failed: ${this.failure}`);
-      }
+      } while (this.refreshAgain);
       this.loading = false;
       cx.notify();
     });
@@ -189,12 +232,12 @@ export default class Alpmeister extends View {
    * Checks an open pick whose issue closed or PR merged; never unchecks one.
    */
   async checkPicks(config) {
-    const picks = this.focus.items().filter((item) => item.kind !== "todo");
+    const picks = this.focus.items().filter((item) => item.kind !== "todo" && item.repo);
     if (!picks.length) return;
-    const states = await loadPickStates(config, [...new Set(picks.map((item) => item.number))]);
+    const states = await loadPickStates(config, picks);
     let changed = false;
     for (const item of picks) {
-      const found = states[item.number];
+      const found = states[`${item.repo}#${item.number}`];
       if (!found) continue;
       const changes = {};
       if (!item.done && (found.state === "CLOSED" || found.state === "MERGED")) changes.done = true;
@@ -250,15 +293,16 @@ export default class Alpmeister extends View {
   /** A pin control for a row. `prefix` keeps ids unique when an item shows in two widgets. */
   pinFor(prefix) {
     return (item) => {
-      const pinned = this.focus.has(item.kind, item.number);
+      const pinned = this.focus.has(item.kind, item.repo, item.number);
       return IconButton(
-        `${prefix}-pin-${item.number}`,
+        `${prefix}-pin-${item.repo}#${item.number}`,
         ICONS.pin,
         (cx) => {
-          if (pinned) this.focus.remove(`${item.kind}-${item.number}`);
+          if (pinned) this.focus.remove(pickId(item.kind, item.repo, item.number));
           else {
             this.focus.add({
               kind: item.kind,
+              repo: item.repo,
               number: item.number,
               title: item.title,
               url: item.url,
@@ -277,26 +321,58 @@ export default class Alpmeister extends View {
   }
 
   /**
-   * Opens a Claude tab on an issue or PR in the space you are in. It starts in the live folder of
-   * that space's first tab when it is the configured folder or inside it, such as a worktree, else
-   * in the configured folder.
+   * The Claude prompt for an issue or a PR, or "" when the button is off.
+   * @param {string} kind "issue" or "pr".
+   * @returns {string}
    */
-  launch(kind, number) {
-    const { issue, pr } = this.config.launch;
-    const repo = this.config.launch.folder?.replace(/\/+$/, "");
+  prompt(kind) {
+    const launch = this.config?.account.launch ?? {};
+    return (kind === "pr" ? launch.pr : launch.issue) ?? "";
+  }
+
+  /**
+   * Opens a Claude tab on an issue or PR in the space you are in. It starts in the live folder of
+   * that space's first tab when it is the repository's local clone or inside it, such as a
+   * worktree, else in the clone, else in the space's own folder.
+   * @param {{ kind: string, repo: string, number: number }} item The issue or PR.
+   */
+  launch(item) {
+    const clone = folderOf(this.config, item.repo);
     const space = spaces().find((candidate) => candidate.active);
     const firstTab = space?.tabs?.[0]?.id;
     const liveFolder = panes().find((pane) => pane.tab === firstTab && pane.cwd)?.cwd ?? space?.folder;
     const spaceFolder = liveFolder?.replace(/\/+$/, "");
-    const inRepo = Boolean(repo && spaceFolder && (spaceFolder === repo || spaceFolder.startsWith(`${repo}/`)));
-    const folder = inRepo ? spaceFolder : repo;
+    const inRepo = Boolean(clone && spaceFolder && (spaceFolder === clone || spaceFolder.startsWith(`${clone}/`)));
+    const folder = inRepo ? spaceFolder : clone;
+    const label = `${shortRepo(item.repo)}#${item.number}`;
     run("tab.new", {
-      name: kind === "pr" ? `PR #${number}` : `#${number}`,
+      name: item.kind === "pr" ? `PR ${label}` : label,
       ...(space ? { space: space.id } : {}),
       ...(folder ? { folder } : {}),
       argv: ["claude"],
-      task: (kind === "pr" ? pr : issue).replace("{number}", number),
+      task: fillPrompt(this.prompt(item.kind), item),
     });
+  }
+
+  /** The actions every row with a Claude button needs. */
+  launchActions() {
+    return { launch: (item) => this.launch(item), prompt: (kind) => this.prompt(kind) };
+  }
+
+  /** The workspace the Dashboard shows, or null for All repos. */
+  shownWorkspace() {
+    return this.config?.workspaces.find((ws) => ws.name === this.workspaceName) ?? null;
+  }
+
+  /** Shows a workspace on the Dashboard, or All repos, and remembers it for this copy. */
+  selectWorkspace(name, cx) {
+    this.workspaceName = name;
+    try {
+      localStorage.setItem(WORKSPACE_KEY, name);
+    } catch (error) {
+      console.log(`alpmeister: workspace not remembered: ${error}`);
+    }
+    cx.notify();
   }
 
   /** Shows one of the tabs and remembers it for this copy. */
@@ -338,7 +414,8 @@ export default class Alpmeister extends View {
       .border_color(t.border)
       .child(pill(TABS.dashboard, "Dashboard"))
       .child(pill(TABS.herds, "Herds"))
-      .child(pill(TABS.today, open ? `Daypack · ${open}` : "Daypack"));
+      .child(pill(TABS.today, open ? `Daypack · ${open}` : "Daypack"))
+      .child(pill(TABS.settings, this.settings.dirty() ? "Settings ·" : "Settings"));
   }
 
   /**
@@ -346,6 +423,14 @@ export default class Alpmeister extends View {
    * reads the sessions again; elsewhere it fetches from GitHub.
    */
   header(t) {
+    if (this.tab === TABS.settings) {
+      return h_flex()
+        .items_center()
+        .gap(10)
+        .child(this.tabs(t))
+        .child(div().w(8))
+        .child(div().text_size(18).font_semibold().text_color(t.foreground).child("Alpmeister"));
+    }
     const herds = this.tab === TABS.herds;
     const fetchedAt = herds ? this.herds?.loadedAt : this.model?.fetchedAt;
     const stale = !herds && fetchedAt && Date.now() - fetchedAt > STALE_AFTER;
@@ -379,23 +464,89 @@ export default class Alpmeister extends View {
     cx.notify();
   }
 
-  /** The Dashboard tab: the four tiles, the spotlight, the next milestone, the team in flight. */
+  /**
+   * The Dashboard's switch: one pill per workspace, then All repos. Hidden with no workspaces.
+   * @param {object} t The theme.
+   * @returns {object | null}
+   */
+  workspaceSwitch(t) {
+    const workspaces = this.config?.workspaces ?? [];
+    if (!workspaces.length) return null;
+    const shown = this.shownWorkspace()?.name ?? ALL_REPOS;
+    const pill = (name, label) =>
+      h_flex()
+        .id(`ws-${name || "all"}`)
+        .h(24)
+        .px(10)
+        .items_center()
+        .rounded(6)
+        .text_size(11.5)
+        .cursor_pointer()
+        .border_1()
+        .border_color(shown === name ? t.accent : t.border)
+        .bg(shown === name ? t.selected : t.background)
+        .text_color(shown === name ? t.foreground : t.dim)
+        .hover((style) => style.text_color(t.foreground))
+        .on_click((_event, cx) => this.selectWorkspace(name, cx))
+        .child(label);
+    return h_flex()
+      .flex_wrap()
+      .gap(6)
+      .items_center()
+      .children(workspaces.map((ws) => pill(ws.name, ws.name)))
+      .child(pill(ALL_REPOS, "All repos"));
+  }
+
+  /**
+   * The Dashboard tab: All repos (four tiles and every repository in scope), or one workspace
+   * (its tiles, spotlight, next milestone, and the team in flight or the open PRs).
+   */
   dashboard(config, model, wide) {
+    const t = theme();
+    const ws = this.shownWorkspace();
+    let content = v_flex().gap(14);
     const onToggleGroup = (key, cx) => this.toggleGroup(key, cx);
-    return v_flex()
-      .gap(14)
-      .child(Tiles(config, model, { wide }))
-      .child(
-        Spotlight(config, model, {
-          wide,
+    const switcher = this.workspaceSwitch(t);
+    if (switcher) content = content.child(switcher);
+    if (!ws) {
+      const account = model.account;
+      if (model.errors?.account) {
+        content = content.child(Note(`GitHub: ${model.errors.account}. Try gh auth status.`, t.blocked));
+      }
+      if (!account) return content.child(Note(this.loading ? "Loading from GitHub…" : "No data yet."));
+      return content.child(AccountTiles(account, { wide })).child(
+        Repos(config, account, {
           expanded: this.expandedGroups,
           onToggleGroup,
-          pinButton: this.pinFor("pr"),
+          activeOnly: this.reposActiveOnly,
+          onToggleActive: (cx) => {
+            this.reposActiveOnly = !this.reposActiveOnly;
+            cx.notify();
+          },
         }),
-      )
-      .child(Milestone(config, model))
-      .child(
-        InFlight(config, model, {
+      );
+    }
+    const wsModel = model.workspaces?.[ws.name];
+    if (!wsModel) return content.child(Note(this.loading ? "Loading from GitHub…" : "Refresh to load this workspace."));
+    for (const [part, error] of Object.entries(wsModel.errors ?? {})) {
+      if (part === "github" || part === "board") content = content.child(Note(`GitHub (${part}): ${error}`, t.blocked));
+    }
+    if (ws.repo) {
+      content = content
+        .child(Tiles(ws, wsModel, { wide }))
+        .child(
+          Spotlight(ws, wsModel, {
+            wide,
+            expanded: this.expandedGroups,
+            onToggleGroup,
+            pinButton: this.pinFor("sp"),
+          }),
+        )
+        .child(Milestone(ws, wsModel));
+    }
+    if (ws.board) {
+      content = content.child(
+        InFlight(ws, wsModel, {
           milestoneOnly: this.milestoneOnly,
           onToggleMilestone: (cx) => {
             this.milestoneOnly = !this.milestoneOnly;
@@ -411,13 +562,20 @@ export default class Alpmeister extends View {
           pinButton: this.pinFor("if"),
         }),
       );
+    } else if (ws.repo) {
+      content = content.child(
+        OpenPrs(ws, wsModel, { ...this.launchActions(), pinButton: this.pinFor("op"), expanded: this.expandedGroups, onToggleGroup }),
+      );
+    }
+    return content;
   }
 
   /**
    * The Daypack tab: today's focus across the top, then review requests and your PRs in one
-   * column and your issues in the other.
+   * column and your issues in the other, from every repository in scope.
    */
   today(config, model, wide) {
+    const t = theme();
     const items = this.focus.items();
     const focus = FocusList(items, this.input, {
       toggle: (id, cx) => {
@@ -428,21 +586,31 @@ export default class Alpmeister extends View {
         this.focus.remove(id);
         this.persist(cx);
       },
-      launch: (kind, number) => this.launch(kind, number),
-      command: (kind) => (kind === "pr" ? config.launch.pr : config.launch.issue),
+      launch: (item) => this.launch(item),
+      command: (kind) => this.prompt(kind),
     });
-    const launch = (kind, number) => this.launch(kind, number);
-    const reviews = Reviews(config, model, { pinButton: this.pinFor("rv"), launch });
-    const mine = MyIssues(config, model, {
+    const account = model.account;
+    if (!account) {
+      return v_flex()
+        .gap(14)
+        .child(focus)
+        .when(Boolean(model.errors?.account), (el) => el.child(Note(`GitHub: ${model.errors.account}`, t.blocked)));
+    }
+    const actions = this.launchActions();
+    const reviews = Reviews(account, { ...actions, pinButton: this.pinFor("rv") });
+    const iterations = Object.fromEntries(
+      config.workspaces.map((ws) => [ws.name, model.workspaces?.[ws.name]?.iteration ?? null]),
+    );
+    const mine = MyIssues(config, account, iterations, {
+      ...actions,
       pinButton: this.pinFor("mi"),
-      launch,
       iterationOnly: this.mineIterationOnly,
       onToggleIteration: (cx) => {
         this.mineIterationOnly = !this.mineIterationOnly;
         cx.notify();
       },
     });
-    const myPrs = MyPrs(config, model, { pinButton: this.pinFor("mp"), launch });
+    const myPrs = MyPrs(account, { ...actions, pinButton: this.pinFor("mp") });
     const lists = wide
       ? h_flex()
           .gap(14)
@@ -453,6 +621,18 @@ export default class Alpmeister extends View {
     return v_flex().gap(14).child(focus).child(lists);
   }
 
+  /** Starts the Settings form over from the file, dropping unsaved edits. */
+  revertSettings(cx) {
+    cx.spawn(async (cx) => {
+      const { config, error, text } = await loadConfig();
+      this.config = config ?? this.config;
+      this.configError = error ?? null;
+      if (config) this.settings.load(config, text);
+      this.settings.message = null;
+      cx.notify();
+    });
+  }
+
   render(cx) {
     this.syncFocus(cx);
     const t = theme();
@@ -460,7 +640,18 @@ export default class Alpmeister extends View {
     const config = this.config;
     const model = this.model;
     let content = v_flex().w_full().p(18).gap(14).child(this.header(t));
-    if (this.tab === TABS.herds) {
+    if (this.tab === TABS.settings) {
+      content = content.child(
+        this.settings.render(cx, {
+          configError: this.configError,
+          onRevert: (cx) => this.revertSettings(cx),
+          onReset: (cx) => {
+            this.settings.load(normalizeConfig({}), this.configText ?? null);
+            cx.notify();
+          },
+        }),
+      );
+    } else if (this.tab === TABS.herds) {
       if (this.herdsFailure) content = content.child(Note(`Reading sessions failed: ${this.herdsFailure}`, t.blocked));
       content = content.child(
         Herds(this.herds, {
@@ -475,12 +666,13 @@ export default class Alpmeister extends View {
         }),
       );
     } else {
-      if (this.configError) content = content.child(Card("settings", "Settings", [], Note(this.configError, t.blocked)));
-      if (this.failure) content = content.child(Note(`Refresh failed: ${this.failure}`, t.blocked));
-      if (model?.errors?.github) {
-        content = content.child(Note(`GitHub: ${model.errors.github}. Try gh auth status.`, t.blocked));
+      if (this.configError) {
+        content = content.child(
+          Card("settings", "Settings", [TextButton("open-settings", "Open Settings", (cx) => this.selectTab(TABS.settings, cx))], Note(this.configError, t.blocked)),
+        );
       }
-      if (!config || !model?.counts) {
+      if (this.failure) content = content.child(Note(`Refresh failed: ${this.failure}`, t.blocked));
+      if (!config || !model) {
         if (!this.configError) content = content.child(Note(this.loading ? "Loading from GitHub…" : "No data yet."));
       } else {
         content = content.child(

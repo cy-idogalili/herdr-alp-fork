@@ -6,7 +6,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme } from "herdr";
 import { priorityColor } from "./project.js";
-import { Card, Chip, GroupHeading, Note, Row, TextButton, openUrl, statusColor, typeColor } from "./ui.js";
+import { Card, Chip, GroupHeading, Note, Row, TextButton, itemKey, openUrl, statusColor, typeColor } from "./ui.js";
 
 const LANE_LIMIT = 8;
 
@@ -34,13 +34,13 @@ function issueRow(t, config, prefix, issue, options, extraChips = []) {
   }
   chips.push(Chip(issue.status ?? "No status", { color: statusColor(t, issue.status) }));
   if (!issue.assignees.length) chips.push(Chip("Unassigned", { color: t.ansi3 ?? t.working }));
-  return Row(`${prefix}-${issue.number}`, {
+  return Row(`${prefix}-${itemKey(issue)}`, {
     number: issue.number,
     lead: [Chip(issue.type ?? "No type", { color: typeColor(t, issue.type) })],
     title: issue.title,
     url: issue.url,
     chips,
-    buttons: [options.pinButton({ kind: "issue", number: issue.number, title: issue.title, url: issue.url, status: issue.status })],
+    buttons: [options.pinButton({ kind: "issue", ...issue })],
   });
 }
 
@@ -73,9 +73,11 @@ function Lane(t, config, lane, options) {
 export function Spotlight(config, model, options) {
   const t = theme();
   const data = model.spotlight;
-  if (!data?.milestones?.[0]?.issues) return Card("spotlight", "Spotlight", [], Note("Refresh to load the spotlight."));
+  if (!data) return Card("spotlight", "Spotlight", [], Note("Refresh to load the spotlight."));
+  if (!data.milestones.length) return Card("spotlight", "Spotlight", [], Note("No open milestone with a due date ahead."));
   const lanes = data.milestones.map((lane) => Lane(t, config, lane, options));
-  const discuss = data.onHold.map((issue) =>
+  // Without a board there are no statuses, so nothing can be on hold: the group is left out.
+  const discuss = (data.onHold ?? []).map((issue) =>
     issueRow(t, config, "sp-hold", issue, options, [Chip(issue.milestone, { color: t.dim })]),
   );
   return Card(
@@ -85,11 +87,13 @@ export function Spotlight(config, model, options) {
     v_flex()
       .gap(10)
       .child(options.wide ? h_flex().gap(18).items_start().children(lanes) : v_flex().gap(14).children(lanes))
-      .child(
-        v_flex()
-          .gap(2)
-          .child(GroupHeading(`To discuss · ${config.spotlight.holdStatus}`, discuss.length, t.blocked))
-          .children(discuss.length ? limited("sp-hold", discuss, options) : [Note("Nothing on hold.")]),
+      .when(data.onHold !== null, (el) =>
+        el.child(
+          v_flex()
+            .gap(2)
+            .child(GroupHeading(`To discuss · ${config.spotlight.holdStatus}`, discuss.length, t.blocked))
+            .children(discuss.length ? limited("sp-hold", discuss, options) : [Note("Nothing on hold.")]),
+        ),
       ),
   );
 }

@@ -23,21 +23,65 @@ const SECTIONS = [
 /** Opens a URL in the default browser. */
 const openUrl = (url) => exec("open", [url]).catch((error) => console.log(`daypack: open failed: ${error}`));
 
+/** The prompts Alpmeister uses when the settings name none: keep in step with its config.js. */
+const DEFAULT_ISSUE_PROMPT = "Work on GitHub issue {repo}#{number}: read it, plan, then implement.";
+const DEFAULT_PR_PROMPT = "Review GitHub PR {repo}#{number} and summarize what needs attention.";
+
+/** A path with a leading `~` made absolute, without a trailing slash. */
+const expandHome = (path) => (path?.startsWith("~") ? home() + path.slice(1) : (path ?? "")).replace(/\/+$/, "");
+
 /**
- * The `launch` settings Alpmeister reads from ~/.config/alp/alpmeister.json: the folder and the
- * Claude command for an issue and for a PR. Empty when the file or the section is missing.
+ * The Claude button settings Alpmeister keeps in ~/.config/alp/alpmeister.json: the prompt for
+ * an issue and for a PR, and each repository's local clone. Reads the current shape (`account`)
+ * and the earlier one-repo shape (`repo` with `launch.folder`).
+ * @returns {Promise<{ issue: string, pr: string, folders: Record<string, string> }>}
  */
 async function loadLaunch() {
   const text = await readTextFile(`${home()}/.config/alp/alpmeister.json`);
   try {
-    const launch = text ? (JSON.parse(text).launch ?? {}) : {};
-    const folder = launch.folder?.startsWith("~") ? home() + launch.folder.slice(1) : launch.folder;
-    return { folder: folder?.replace(/\/+$/, "") ?? "", issue: launch.issue ?? "", pr: launch.pr ?? "" };
+    const raw = text ? JSON.parse(text) : {};
+    if (raw.repo || raw.launch) {
+      const launch = raw.launch ?? {};
+      return {
+        issue: launch.issue ?? DEFAULT_ISSUE_PROMPT,
+        pr: launch.pr ?? DEFAULT_PR_PROMPT,
+        folders: raw.repo && launch.folder ? { [raw.repo]: expandHome(launch.folder) } : {},
+      };
+    }
+    const account = raw.account ?? {};
+    return {
+      issue: account.launch?.issue ?? DEFAULT_ISSUE_PROMPT,
+      pr: account.launch?.pr ?? DEFAULT_PR_PROMPT,
+      folders: Object.fromEntries(Object.entries(account.folders ?? {}).map(([repo, path]) => [repo, expandHome(path)])),
+    };
   } catch (error) {
     console.log(`daypack: settings unreadable, no Claude buttons: ${error}`);
-    return { folder: "", issue: "", pr: "" };
+    return { issue: "", pr: "", folders: {} };
   }
 }
+
+/**
+ * The repository of a GitHub item, from its field or, for an item pinned before workspaces,
+ * its URL.
+ * @param {{ repo?: string, url?: string }} item A Lineup item.
+ * @returns {string} `owner/name`, or "".
+ */
+function repoOf(item) {
+  if (item.repo) return item.repo;
+  return /github\.com\/([^/]+\/[^/]+)\/(?:issues|pull)\//.exec(item.url ?? "")?.[1] ?? "";
+}
+
+/**
+ * A Claude prompt for an item: `{number}` and `{repo}` filled in.
+ * @param {string} template The prompt.
+ * @param {object} item The issue or PR.
+ * @returns {string}
+ */
+const fillPrompt = (template, item) =>
+  template.split("{number}").join(String(item.number)).split("{repo}").join(repoOf(item));
+
+/** An item's number as the list shows it: "repo#12". */
+const label = (item) => `${repoOf(item).split("/")[1] ?? ""}#${item.number}`;
 
 /** The layout node with this id, or null. */
 function findNode(node, id) {
@@ -54,17 +98,19 @@ export default class Daypack extends View {
   init(_props, cx) {
     this.store = new FocusFile();
     this.stamp = null;
-    this.launchSettings = { folder: "", issue: "", pr: "" };
+    this.launchSettings = { issue: "", pr: "", folders: {} };
     this.reload(cx);
   }
 
   /**
    * Opens a Claude tab on an issue or PR in the space you are in. It starts in the live folder of
-   * that space's first tab when it is the configured folder or inside it, such as a worktree, else
-   * in the configured folder.
+   * that space's first tab when it is the repository's local clone or inside it, such as a
+   * worktree, else in the clone, else in the space's own folder.
+   * @param {object} item The issue or PR.
    */
-  launch(kind, number) {
-    const { folder: repo, issue, pr } = this.launchSettings;
+  launch(item) {
+    const { issue, pr, folders } = this.launchSettings;
+    const repo = folders[repoOf(item)] ?? "";
     const space = spaces().find((candidate) => candidate.active);
     const firstTab = space?.tabs?.[0]?.id;
     const liveFolder = panes().find((pane) => pane.tab === firstTab && pane.cwd)?.cwd ?? space?.folder;
@@ -72,11 +118,11 @@ export default class Daypack extends View {
     const inRepo = Boolean(repo && spaceFolder && (spaceFolder === repo || spaceFolder.startsWith(`${repo}/`)));
     const folder = inRepo ? spaceFolder : repo;
     run("tab.new", {
-      name: kind === "pr" ? `PR #${number}` : `#${number}`,
+      name: item.kind === "pr" ? `PR ${label(item)}` : label(item),
       ...(space ? { space: space.id } : {}),
       ...(folder ? { folder } : {}),
       argv: ["claude"],
-      task: (kind === "pr" ? pr : issue).replace("{number}", number),
+      task: fillPrompt(item.kind === "pr" ? pr : issue, item),
     });
   }
 
@@ -94,10 +140,10 @@ export default class Daypack extends View {
       .rounded(5)
       .cursor_pointer()
       .hover((style) => style.bg(t.selected))
-      .tooltip(`Open a Claude tab running ${command.replace("{number}", item.number)}`)
+      .tooltip(`Open a Claude tab running ${fillPrompt(command, item)}`)
       .on_click((_event, cx) => {
         cx.stop_propagation();
-        this.launch(item.kind, item.number);
+        this.launch(item);
       })
       .child(image(CLAUDE_ICON).w(13).h(13));
   }
@@ -163,7 +209,7 @@ export default class Daypack extends View {
       );
   }
 
-  /** One item: its checkbox, its title, its number, and its Claude button. A click on the title opens it on GitHub. */
+  /** One item: its checkbox, its title, its repository and number, and its Claude button. A click on the title opens it on GitHub. */
   row(t, item) {
     const label = item.kind === "todo" ? item.text : item.title;
     return h_flex()
@@ -197,7 +243,7 @@ export default class Daypack extends View {
           .when(Boolean(item.url), (el) => el.cursor_pointer().on_click(() => openUrl(item.url)))
           .child(label ?? ""),
       )
-      .when(item.number != null, (el) => el.child(div().flex_none().text_color(t.dim).child(`#${item.number}`)))
+      .when(item.number != null, (el) => el.child(div().flex_none().text_color(t.dim).child(label(item))))
       .children([this.claudeButton(t, item)].filter(Boolean));
   }
 
