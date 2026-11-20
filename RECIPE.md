@@ -71,7 +71,7 @@ Left to right:
 A tab mod, `mods/alpmeister`, for a team lead's start of day. It is not placed by the layout:
 open it with `tab.new {mod: "alpmeister"}`.
 
-- **Settings** live in `~/.config/alp/alpmeister.json`, written by the Settings tab, in two parts:
+- **Settings** live in `~/.config/alp/alpmeister.json`, written by the settings tab, in two parts:
   - `account`: your GitHub as a whole. `repos` is `"all"` (every repository you own,
     collaborate on or reach through an organization, archived ones only with `archived`, less
     `exclude`) or a list of `owner/name`. Also the Claude prompts (`launch.issue`, `launch.pr`,
@@ -87,9 +87,13 @@ open it with `tab.new {mod: "alpmeister"}`.
 
 - **What you see**, top to bottom on the `canvas` background, 18px padding, cards with 10px
   radius and a 1px `border`:
-  - A header: four pill tabs, Dashboard, Herds, "Daypack · N" (N open focus items) and Settings
-    ("Settings ·" with unsaved edits), then "Alpmeister" (18px semibold), "updated 4m ago" in
-    `dim` (`working` after 2 hours), and a Refresh text button. Each copy remembers its tab and
+  - A header: three pill tabs, Dashboard, Herds and "Daypack · N" (N open focus items), then
+    "Alpmeister" (18px semibold), "updated 4m ago" in `dim` (`working` after 2 hours), a Refresh
+    text button, and a gear icon button (`mods/workspace-chrome/settings.svg`, tooltip
+    "Settings"). The gear goes to the space's tab named "Alpmeister settings", or opens one:
+    `tab.new {mod: "alpmeister", name: "Alpmeister settings", props: {tab: "settings"}}`. That
+    copy shows a gear and "Alpmeister settings" as its header, then the form, and fetches nothing
+    from GitHub but the form's choices. Each other copy remembers its tab and
     workspace in localStorage; `props.tab` and `props.workspace` open a copy on a given one
     (`tab.new {mod: "alpmeister", props: {tab: "dashboard", workspace: "Team"}}`, `""` for All
     repos).
@@ -149,7 +153,8 @@ open it with `tab.new {mod: "alpmeister"}`.
       hidden when its status is in its workspace's `mineHidden`. Issues on no workspace's board
       go under "No status".
     - Every row in these lists names its repository in a chip after the number.
-  - **Settings**: the settings file as a form. Nothing is written until Save, which writes over
+  - **Settings** (the settings copy): the settings file as a form. A save sets
+    `shared("alp.settingsStamp")`, and every other copy fetches again. Nothing is written until Save, which writes over
     the version it read (or refuses, when the file changed on disk: Revert loads it) and keeps
     the previous file as `alpmeister.json.bak`. "Reload choices" reads GitHub and your disk again.
     - "Your GitHub": All my repos (with Include archived) or Only the ones I pick, then a

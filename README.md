@@ -1,3 +1,5 @@
+<p align="center"><img src="icon.png" width="160" alt="Alp: a llama in circuit goggles"></p>
+
 # herdr-alp
 
 A layout for the [Herdr](https://herdr.dev) desktop app, plus the Claude Code plugin that feeds it.
@@ -23,6 +25,7 @@ What's inside:
 | `mods/alp-tabs/` | the tab bar: Herdr's tabs with a sheep beside + that opens Alpmeister, and the Daypack button after Changes |
 | `plugins/alp/` | Claude Code plugin that writes the status files the mods read |
 | `RECIPE.md` | the brief to rebuild it from scratch (herdr.dev format) |
+| `icon.png` | Alp's logo |
 | `sync.sh` | copy the layout and mods into Herdr's home, or pull live edits back |
 | `setup.sh` | one-step install: checks `gh`, syncs, installs the plugin and opens Alpmeister's Settings |
 
@@ -86,7 +89,8 @@ sheep beside + in the tab bar (it goes to the space's Alpmeister tab when one is
 herdr-app do tab.new '{"mod":"alpmeister","name":"Alpmeister"}'
 ```
 
-It has four tabs: Dashboard, Herds, Daypack and Settings. It works before you set anything:
+It has three tabs: Dashboard, Herds and Daypack, and a gear beside Refresh that opens its
+settings in a tab of their own. It works before you set anything:
 the Dashboard starts on all your repositories.
 
 - **Dashboard:** your GitHub as a whole, or one workspace, picked from a row of pills on top.
@@ -112,7 +116,9 @@ the Dashboard starts on all your repositories.
   tab picked with Link a tab. It reads Claude Code's files (`~/.claude/sessions`, the
   sessions' transcripts) and redraws when a session starts, ends or changes status. Open it
   directly with `herdr-app do tab.new '{"mod":"alpmeister","props":{"tab":"herds"}}'`.
-- **Settings:** everything below, as a form (see [Settings](#settings)).
+- **Settings:** everything below, as a form (see [Settings](#settings)), in an "Alpmeister
+  settings" tab opened from the gear (or gone to, when it is already open). A save there makes
+  every Alpmeister tab fetch again.
 - **Refresh:** Dashboard and Daypack fetch when the tab opens and from its Refresh button only. The "updated" time turns
   amber after 2 hours.
 - **Today's focus** shows each pinned issue's board status and each pinned PR's review
@@ -125,7 +131,7 @@ the Dashboard starts on all your repositories.
 
 ### Settings
 
-The Settings tab edits `~/.config/alp/alpmeister.json`. Its choices come from GitHub through
+The settings tab edits `~/.config/alp/alpmeister.json`. Its choices come from GitHub through
 the `gh` CLI (your repositories, your account's and organizations' project boards, a board's
 statuses and fields, a repository's workflows) and from your disk (local clones). Alpmeister
 only reads GitHub, never writes to it. Nothing is saved until Save, which keeps the previous

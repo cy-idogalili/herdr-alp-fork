@@ -3,7 +3,7 @@
 #   1. checks gh: installed, signed in, with the read:project scope project boards need
 #   2. copies the layout and mods into Herdr (sync.sh install)
 #   3. installs the alp Claude Code plugin
-#   4. switches Herdr to the alp layout and opens Alpmeister on its Settings tab, where you
+#   4. switches Herdr to the alp layout and opens Alpmeister's settings in a tab, where you
 #      pick your repositories, workspaces and Claude prompts
 #
 #   ./setup.sh
@@ -60,12 +60,12 @@ if ! command -v herdr-app >/dev/null || ! herdr-app status >/dev/null 2>&1; then
   echo "Herdr is not open. Later: herdr-app do layout.switch '{\"name\":\"alp\"}'"
 elif confirm "Switch Herdr to the alp layout and open Alpmeister's Settings?"; then
   herdr-app do layout.switch '{"name":"alp"}' >/dev/null
-  if herdr-app ls 2>/dev/null | grep -q '"name": "Alpmeister"'; then
-    echo "The Alpmeister tab is already open: its Settings tab has your settings."
+  if herdr-app ls 2>/dev/null | grep -q '"name": "Alpmeister settings"'; then
+    echo "Alpmeister's settings are already open in a tab."
   else
-    herdr-app do tab.new '{"mod":"alpmeister","name":"Alpmeister","props":{"tab":"settings"}}' >/dev/null
+    herdr-app do tab.new '{"mod":"alpmeister","name":"Alpmeister settings","props":{"tab":"settings"}}' >/dev/null
   fi
 fi
 
 say "Done."
-echo "Change your settings any time in Alpmeister's Settings tab."
+echo "Change your settings any time from the gear beside Alpmeister's Refresh button."

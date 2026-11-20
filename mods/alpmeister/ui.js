@@ -209,6 +209,7 @@ export const ICONS = {
   pin: "mods/workspace-chrome/pin.svg",
   close: "mods/workspace-chrome/x.svg",
   claude: "icons/claude.svg",
+  settings: "mods/workspace-chrome/settings.svg",
 };
 
 /**
