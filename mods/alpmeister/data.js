@@ -1,59 +1,110 @@
 // Fetches Alpmeister's data through the `gh` CLI and shapes it for the widgets.
 // Read-only: nothing here writes to GitHub.
+//
+// Two kinds of load: the account (every repository in scope and the @me searches, for the
+// "All repos" Dashboard and the Daypack) and one workspace (its repository, its board, or both).
 
 import { exec } from "herdr";
-import { BUGS_PAGE, CUSTOMER_LABELS, ISSUE_COUNT, OVERVIEW, pickStates } from "./queries.js";
+import { inScope, workspaceOfBoard } from "./config.js";
+import {
+  ACCOUNT,
+  BUGS_PAGE,
+  CUSTOMER_LABELS,
+  ISSUE_COUNT,
+  OPEN_PRS,
+  WORKSPACE_BOARD,
+  WORKSPACE_REPO,
+  pickStates,
+} from "./queries.js";
 
 const DAY = 86400000;
 const BUG_PAGES = 10;
 const FAILED_CONCLUSIONS = ["failure", "timed_out", "startup_failure"];
 
-/** Runs `gh` with the given arguments and parses its JSON output, or throws with gh's message. */
-async function gh(args) {
+/** The cache format: a cache written by another version is ignored. */
+export const MODEL_VERSION = 2;
+
+/**
+ * Runs `gh` with the given arguments and parses its JSON output.
+ * @param {string[]} args The arguments after `gh`.
+ * @returns {Promise<any>} The parsed output.
+ * @throws {Error} With gh's message when it exits non-zero.
+ */
+export async function gh(args) {
   const result = await exec("gh", args, { timeout: 60000 });
   if (result.code !== 0) throw new Error((result.stderr || result.stdout || `gh exited ${result.code}`).trim());
   return JSON.parse(result.stdout);
 }
 
-/** Runs a GraphQL document with string and integer variables. */
-async function graphql(query, variables) {
+/**
+ * Runs a GraphQL document with string and integer variables.
+ * @param {string} query The document.
+ * @param {Record<string, string | number>} [variables] Its variables.
+ * @param {{ partial?: boolean }} [options] `partial`: return what came back despite errors.
+ * @returns {Promise<any>} The `data` of the response.
+ * @throws {Error} With GitHub's messages, unless `partial` and some data came back.
+ */
+export async function graphql(query, variables = {}, { partial = false } = {}) {
   const args = ["api", "graphql", "-f", `query=${query}`];
   for (const [key, value] of Object.entries(variables)) {
     args.push(typeof value === "number" ? "-F" : "-f", `${key}=${value}`);
   }
-  const body = await gh(args);
-  if (body.errors?.length) throw new Error(body.errors.map((error) => error.message).join("; "));
+  // gh exits non-zero when the response has errors, but still prints the body on stdout.
+  const result = await exec("gh", args, { timeout: 60000 });
+  let body = null;
+  try {
+    body = JSON.parse(result.stdout);
+  } catch {
+    // Not JSON: gh failed before GitHub answered.
+  }
+  if (!body) throw new Error((result.stderr || result.stdout || `gh exited ${result.code}`).trim());
+  if (body.errors?.length && !(partial && body.data)) {
+    throw new Error(body.errors.map((error) => error.message).join("; "));
+  }
   return body.data;
 }
 
 /** A board filter or search value list: `name:"A","B"`. */
 const valueList = (qualifier, values) => `${qualifier}:${values.map((value) => `"${value}"`).join(",")}`;
 
-/** The search URL GitHub shows for a query, for links out of the view. */
-export const searchUrl = (config, query) =>
-  `https://github.com/${config.owner}/${config.name}/issues?q=${encodeURIComponent(query)}`;
+/**
+ * The GitHub page listing a search's results.
+ * @param {string | null} repo `owner/name` for that repository's issues page, or null for all of GitHub.
+ * @param {string} query The search.
+ * @returns {string} The URL.
+ */
+export const searchUrl = (repo, query) =>
+  repo
+    ? `https://github.com/${repo}/issues?q=${encodeURIComponent(query)}`
+    : `https://github.com/search?type=issues&q=${encodeURIComponent(query)}`;
 
-/** Every query the view runs, scoped to the configured repository. */
-export function queriesFor(config) {
-  const repo = `repo:${config.owner}/${config.name}`;
-  const inFlightParts = [repo, "is:issue", "is:open", valueList("status", config.inFlight.statuses)];
-  if (config.inFlight.excludeTypes.length) inFlightParts.push(valueList("-type", config.inFlight.excludeTypes));
+/**
+ * Every search a workspace runs, scoped to its repository.
+ * @param {object} ws The workspace.
+ * @returns {Record<string, string>} The searches by name; repository searches are absent without a repository.
+ */
+export function workspaceQueries(ws) {
+  const repo = ws.repo ? `repo:${ws.repo}` : "";
+  const inFlightParts = [repo, "is:issue", "is:open", valueList("status", ws.inFlight.statuses)].filter(Boolean);
+  if (ws.inFlight.excludeTypes.length) inFlightParts.push(valueList("-type", ws.inFlight.excludeTypes));
+  if (!ws.repo) return { inFlightFilter: inFlightParts.join(" ") };
   return {
     inFlightFilter: inFlightParts.join(" "),
-    triageQuery: `${repo} ${config.queries.triage}`,
-    reviewQuery: `${repo} ${config.queries.review}`,
-    mineQuery: `${repo} ${config.queries.mine}`,
-    myPrsQuery: `${repo} ${config.queries.myPrs}`,
-    bugsQuery: `${repo} ${config.bugs.query}`,
+    triageQuery: `${repo} ${ws.queries.triage}`,
+    bugsQuery: `${repo} ${ws.bugs.query}`,
+    prsQuery: `${repo} is:pr is:open sort:updated-desc`,
   };
 }
 
 /**
  * Open bugs counted by the priority issue field, in the configured order, then "Unset" for a
  * missing or unknown value. Reads at most BUG_PAGES pages of 100.
+ * @param {object} ws The workspace.
+ * @param {string} bugsQuery The bugs search.
+ * @returns {Promise<{ total: number, read: number, counts: Record<string, number> }>}
  */
-async function bugsByPriority(config, bugsQuery) {
-  const counts = Object.fromEntries([...config.bugs.priorities, "Unset"].map((priority) => [priority, 0]));
+async function bugsByPriority(ws, bugsQuery) {
+  const counts = Object.fromEntries([...ws.bugs.priorities, "Unset"].map((priority) => [priority, 0]));
   let after = null;
   let total = 0;
   let read = 0;
@@ -61,7 +112,7 @@ async function bugsByPriority(config, bugsQuery) {
     const search = (await graphql(BUGS_PAGE, after ? { bugsQuery, after } : { bugsQuery })).search;
     total = search.issueCount;
     for (const issue of search.nodes) {
-      const value = priorityOf(config, issue);
+      const value = priorityOf(ws, issue);
       counts[value in counts && value !== "Unset" ? value : "Unset"] += 1;
       read += 1;
     }
@@ -71,13 +122,33 @@ async function bugsByPriority(config, bugsQuery) {
   return { total, read, counts };
 }
 
-/** The board item of an issue on the configured project, or null. */
-function boardItem(config, issue) {
+/** The board item of an issue on the workspace's board, or null. */
+function boardItem(ws, issue) {
+  if (!ws.board) return null;
   return (
     issue.projectItems?.nodes?.find(
-      (item) => item.project?.number === config.project.number && item.project?.owner?.login === config.project.owner,
+      (item) => item.project?.number === ws.board.number && item.project?.owner?.login === ws.board.owner,
     ) ?? null
   );
+}
+
+/**
+ * An issue's status and iteration, from the first of its boards that a workspace is set up for.
+ * Reads the generic field values the account queries return.
+ * @param {object} config The settings.
+ * @param {object} issue An issue with `projectItems.nodes[].fieldValues`.
+ * @returns {{ ws: object | null, status: string | null, iteration: string | null }}
+ */
+export function standingOnBoards(config, issue) {
+  for (const item of issue.projectItems?.nodes ?? []) {
+    const ws = workspaceOfBoard(config, item.project?.owner?.login, item.project?.number);
+    if (!ws) continue;
+    const values = item.fieldValues?.nodes ?? [];
+    const status = values.find((value) => value.field?.name === ws.board.statusField && "name" in value);
+    const iteration = values.find((value) => value.field?.name === ws.board.iterationField && "title" in value);
+    return { ws, status: status?.name ?? null, iteration: iteration?.title ?? null };
+  }
+  return { ws: null, status: null, iteration: null };
 }
 
 /** The iteration whose dates contain `now`, or null. */
@@ -91,23 +162,24 @@ function currentIteration(iterations, now) {
 }
 
 /** An issue's value for the configured priority field, or null. */
-function priorityOf(config, issue) {
-  return issue.issueFieldValues?.nodes?.find((field) => field.field?.name === config.bugs.priorityField)?.name ?? null;
+function priorityOf(ws, issue) {
+  return issue.issueFieldValues?.nodes?.find((field) => field.field?.name === ws.bugs.priorityField)?.name ?? null;
 }
 
 /** A milestone's issue, shaped for the milestone card and the spotlight card. */
-function milestoneIssue(config, issue) {
+function milestoneIssue(ws, issue) {
   return {
+    repo: ws.repo,
     number: issue.number,
     title: issue.title,
     url: issue.url,
     closed: issue.state === "CLOSED",
-    status: boardItem(config, issue)?.status?.name ?? null,
+    status: boardItem(ws, issue)?.status?.name ?? null,
     assignees: issue.assignees.nodes.map((assignee) => assignee.login),
     type: issue.issueType?.name ?? null,
     parent: issue.parent ?? null,
     labels: issue.labels?.nodes?.map((label) => label.name) ?? [],
-    priority: priorityOf(config, issue),
+    priority: priorityOf(ws, issue),
     subIssues: issue.subIssuesSummary ?? { total: 0, completed: 0 },
   };
 }
@@ -122,9 +194,9 @@ function upcomingMilestones(repository, now) {
  * One milestone's spotlight: its open issues that have a priority value or a configured label,
  * or a feature type. Most urgent first, then by feature type. Issues on hold are left out.
  */
-function milestoneSpotlight(config, milestone, issues) {
-  const settings = config.spotlight;
-  const levels = config.bugs.priorities;
+function milestoneSpotlight(ws, milestone, issues) {
+  const settings = ws.spotlight;
+  const levels = ws.bugs.priorities;
   const types = settings.featureTypes;
   const rank = (issue) => (levels.includes(issue.priority) ? levels.indexOf(issue.priority) : levels.length);
   const typeRank = (issue) => (types.includes(issue.type) ? types.indexOf(issue.type) : types.length);
@@ -141,31 +213,36 @@ function milestoneSpotlight(config, milestone, issues) {
 }
 
 /** The spotlight card: the next milestones' issues in focus, and their issues on hold. */
-function spotlight(config, upcoming) {
-  const milestones = upcoming.slice(0, config.spotlight.milestones).map((milestone) => ({
+function spotlight(ws, upcoming) {
+  const milestones = upcoming.slice(0, ws.spotlight.milestones).map((milestone) => ({
     milestone,
-    issues: milestone.issues.nodes.map((issue) => milestoneIssue(config, issue)),
+    issues: milestone.issues.nodes.map((issue) => milestoneIssue(ws, issue)),
   }));
   return {
-    milestones: milestones.map(({ milestone, issues }) => milestoneSpotlight(config, milestone, issues)),
-    onHold: milestones.flatMap(({ milestone, issues }) =>
-      issues
-        .filter((issue) => !issue.closed && issue.status === config.spotlight.holdStatus)
-        .map((issue) => ({ ...issue, milestone: milestone.title })),
-    ),
+    milestones: milestones.map(({ milestone, issues }) => milestoneSpotlight(ws, milestone, issues)),
+    onHold: ws.board
+      ? milestones.flatMap(({ milestone, issues }) =>
+          issues
+            .filter((issue) => !issue.closed && issue.status === ws.spotlight.holdStatus)
+            .map((issue) => ({ ...issue, milestone: milestone.title })),
+        )
+      : null,
   };
 }
 
-/** The next milestone, with its status breakdown. */
-function nextMilestone(config, repository, next) {
+/**
+ * The next milestone, with its breakdown: by board status with a board, else open and closed.
+ */
+function nextMilestone(ws, repository, next) {
   if (!next) return null;
   const earlierDues = [...repository.open.nodes, ...repository.closed.nodes]
     .map((milestone) => milestone.dueOn)
     .filter((due) => due && due < next.dueOn)
     .sort();
-  const issues = next.issues.nodes.map((issue) => milestoneIssue(config, issue));
+  const issues = next.issues.nodes.map((issue) => milestoneIssue(ws, issue));
   const byStatus = {};
-  for (const issue of issues) byStatus[issue.status ?? "No status"] = (byStatus[issue.status ?? "No status"] ?? 0) + 1;
+  const bucket = (issue) => (ws.board ? (issue.status ?? "No status") : issue.closed ? "Closed" : "Open");
+  for (const issue of issues) byStatus[bucket(issue)] = (byStatus[bucket(issue)] ?? 0) + 1;
   return {
     title: next.title,
     url: next.url,
@@ -175,7 +252,7 @@ function nextMilestone(config, repository, next) {
     closed: issues.filter((issue) => issue.closed).length,
     byStatus,
     unassigned: issues.filter((issue) => !issue.closed && issue.assignees.length === 0),
-    notStarted: issues.filter((issue) => !issue.closed && config.notStarted.includes(issue.status)),
+    notStarted: issues.filter((issue) => !issue.closed && ws.notStarted.includes(issue.status)),
   };
 }
 
@@ -206,10 +283,10 @@ function checkOutcome(check, jobs) {
 }
 
 /** The last qualifying nightly run: one outcome per configured check, and one for the run. */
-async function nightly(config) {
-  const settings = config.nightly;
-  if (!settings?.workflow) return null;
-  const base = `repos/${config.owner}/${config.name}/actions`;
+async function nightly(ws) {
+  const settings = ws.nightly;
+  if (!settings?.workflow || !ws.repo) return null;
+  const base = `repos/${ws.repo}/actions`;
   const runs = await gh([
     "api",
     `${base}/workflows/${settings.workflow}/runs?branch=${encodeURIComponent(settings.branch)}&per_page=20`,
@@ -233,136 +310,244 @@ async function nightly(config) {
  * Open issues with any label whose name contains `customer.labelMatch`, ignoring case: the
  * matching labels, their count, and the search that lists them.
  */
-async function customerIssues(config) {
-  const match = config.customer.labelMatch.toLowerCase();
-  const data = await graphql(CUSTOMER_LABELS, { owner: config.owner, name: config.name, labelQuery: match });
+async function customerIssues(ws) {
+  const match = ws.customer.labelMatch.toLowerCase();
+  const [owner, name] = ws.repo.split("/");
+  const data = await graphql(CUSTOMER_LABELS, { owner, name, labelQuery: match });
   const labels = data.repository.labels.nodes
     .map((label) => label.name)
-    .filter((name) => name.toLowerCase().includes(match));
+    .filter((labelName) => labelName.toLowerCase().includes(match));
   if (!labels.length) return { labels, count: 0, query: null };
-  const query = `repo:${config.owner}/${config.name} is:issue is:open ${valueList("label", labels)}`;
+  const query = `repo:${ws.repo} is:issue is:open ${valueList("label", labels)}`;
   return { labels, count: (await graphql(ISSUE_COUNT, { searchQuery: query })).search.issueCount, query };
 }
 
-/** Loads everything the view shows. Each part fails on its own: an error lands in `errors`. */
-export async function loadOverview(config) {
-  const now = Date.now();
-  const queries = queriesFor(config);
-  const errors = {};
-  const [overview, nightlyRun, bugs, customer] = await Promise.all([
-    graphql(OVERVIEW, {
-      owner: config.owner,
-      name: config.name,
-      projectOwner: config.project.owner,
-      projectNumber: config.project.number,
-      statusField: config.project.statusField,
-      iterationField: config.project.iterationField,
-      inFlightFilter: queries.inFlightFilter,
-      triageQuery: queries.triageQuery,
-      reviewQuery: queries.reviewQuery,
-      mineQuery: queries.mineQuery,
-      myPrsQuery: queries.myPrsQuery,
-    }).catch((error) => {
-      errors.github = String(error.message ?? error);
-      return null;
-    }),
-    nightly(config).catch((error) => {
-      errors.nightly = String(error.message ?? error);
-      return null;
-    }),
-    bugsByPriority(config, queries.bugsQuery).catch((error) => {
-      errors.bugs = String(error.message ?? error);
-      return null;
-    }),
-    customerIssues(config).catch((error) => {
-      errors.customer = String(error.message ?? error);
-      return null;
-    }),
-  ]);
-  const model = { fetchedAt: now, errors, nightly: nightlyRun, bugs, customer, queries };
-  if (!overview) return model;
-  const board = overview.board?.projectV2;
-  model.viewer = overview.viewer.login;
-  const upcoming = upcomingMilestones(overview.repository, now);
-  model.milestone = nextMilestone(config, overview.repository, upcoming[0]);
-  model.spotlight = spotlight(config, upcoming);
-  model.iteration = currentIteration(board?.iterationField?.configuration?.iterations, now);
-  model.inFlightTotal = board?.inFlight.totalCount ?? 0;
-  model.inFlight = (board?.inFlight.nodes ?? [])
-    .filter((item) => item.content?.number)
-    .map((item) => ({
-      number: item.content.number,
-      title: item.content.title,
-      url: item.content.url,
-      status: item.status?.name ?? null,
-      since: item.status?.updatedAt ? Date.parse(item.status.updatedAt) : null,
-      iteration: item.iteration?.title ?? null,
-      assignees: item.content.assignees.nodes.map((assignee) => assignee.login),
-      milestone: item.content.milestone?.title ?? null,
-      prs: item.content.closedByPullRequestsReferences.nodes.filter((pr) => !pr.isDraft),
-    }));
-  model.counts = {
-    triage: overview.triage.issueCount,
-    reviews: overview.reviews.issueCount,
-    mine: overview.mine.issueCount,
-    myPrs: overview.myPrs.issueCount,
+/** A PR from a search, shaped for the lists. */
+function prRow(pr) {
+  return {
+    kind: "pr",
+    repo: pr.repository?.nameWithOwner ?? null,
+    number: pr.number,
+    title: pr.title,
+    url: pr.url,
+    updatedAt: Date.parse(pr.updatedAt),
+    author: pr.author?.login ?? "ghost",
+    isDraft: Boolean(pr.isDraft),
+    reviewDecision: pr.reviewDecision ?? null,
+    checks: pr.commits?.nodes?.[0]?.commit.statusCheckRollup?.state ?? null,
   };
-  model.reviews = overview.reviews.nodes
-    .filter((pr) => pr.number)
-    .map((pr) => ({
-      kind: "pr",
-      number: pr.number,
-      title: pr.title,
-      url: pr.url,
-      updatedAt: Date.parse(pr.updatedAt),
-      author: pr.author?.login ?? "ghost",
-      checks: pr.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
-    }));
-  model.myPrs = overview.myPrs.nodes
-    .filter((pr) => pr.number)
-    .map((pr) => ({
-      kind: "pr",
-      number: pr.number,
-      title: pr.title,
-      url: pr.url,
-      updatedAt: Date.parse(pr.updatedAt),
-      reviewDecision: pr.reviewDecision ?? null,
-      checks: pr.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
-    }));
-  model.mine = overview.mine.nodes
-    .filter((issue) => issue.number)
-    .map((issue) => ({
-      kind: "issue",
-      number: issue.number,
-      title: issue.title,
-      url: issue.url,
-      status: boardItem(config, issue)?.status?.name ?? null,
-      iteration: boardItem(config, issue)?.iteration?.title ?? null,
-      milestone: issue.milestone?.title ?? null,
-    }));
-  return model;
 }
 
 /**
- * Each numbered issue or PR, keyed by number: `{ state, status, review }`. `state` is OPEN,
- * CLOSED or MERGED; `status` is an issue's board status; `review` is a PR's review decision
- * (APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED). The ones that do not apply are null.
+ * Runs one part of a load, keeping its failure apart from the others.
+ * @param {Record<string, string>} errors Where a failure is recorded, under `key`.
+ * @param {string} key The part's name.
+ * @param {Promise<any>} promise The part.
+ * @returns {Promise<any>} Its result, or null when it failed.
  */
-export async function loadPickStates(config, numbers) {
-  if (!numbers.length) return {};
-  const data = await graphql(pickStates(numbers), {
-    owner: config.owner,
-    name: config.name,
-    statusField: config.project.statusField,
+const part = (errors, key, promise) =>
+  promise.catch((error) => {
+    errors[key] = String(error.message ?? error);
+    return null;
   });
+
+/**
+ * Loads one workspace: its repository's milestones, bugs, triage, customer issues, nightly run
+ * and open PRs, and its board's iterations and items in flight. A part the workspace has no
+ * repository or board for is null.
+ * @param {object} ws The workspace.
+ * @returns {Promise<object>} The workspace's model, with failures in `errors`.
+ */
+export async function loadWorkspace(ws) {
+  const now = Date.now();
+  const queries = workspaceQueries(ws);
+  const errors = {};
+  const fields = {
+    statusField: ws.board?.statusField ?? "Status",
+    iterationField: ws.board?.iterationField ?? "Iteration",
+  };
+  const [owner, name] = ws.repo ? ws.repo.split("/") : [];
+  const none = Promise.resolve(null);
+  const [repo, board, nightlyRun, bugs, customer, prs] = await Promise.all([
+    ws.repo ? part(errors, "github", graphql(WORKSPACE_REPO, { owner, name, ...fields, triageQuery: queries.triageQuery })) : none,
+    ws.board
+      ? part(
+          errors,
+          "board",
+          graphql(WORKSPACE_BOARD, {
+            projectOwner: ws.board.owner,
+            projectNumber: ws.board.number,
+            ...fields,
+            inFlightFilter: queries.inFlightFilter,
+          }),
+        )
+      : none,
+    ws.repo ? part(errors, "nightly", nightly(ws)) : none,
+    ws.repo ? part(errors, "bugs", bugsByPriority(ws, queries.bugsQuery)) : none,
+    ws.repo ? part(errors, "customer", customerIssues(ws)) : none,
+    ws.repo && !ws.board ? part(errors, "prs", graphql(OPEN_PRS, { prsQuery: queries.prsQuery })) : none,
+  ]);
+  const model = { fetchedAt: now, errors, nightly: nightlyRun, bugs, customer, queries };
+  if (repo?.repository) {
+    const upcoming = upcomingMilestones(repo.repository, now);
+    model.milestone = nextMilestone(ws, repo.repository, upcoming[0]);
+    model.spotlight = spotlight(ws, upcoming);
+    model.counts = { triage: repo.triage.issueCount };
+  }
+  const project = board?.owner?.projectV2;
+  if (project) {
+    model.boardUrl = project.url;
+    model.iteration = currentIteration(project.iterationField?.configuration?.iterations, now);
+    model.inFlightTotal = project.inFlight.totalCount;
+    model.inFlight = project.inFlight.nodes
+      .filter((item) => item.content?.number)
+      .map((item) => ({
+        repo: item.content.repository?.nameWithOwner ?? ws.repo,
+        number: item.content.number,
+        title: item.content.title,
+        url: item.content.url,
+        status: item.status?.name ?? null,
+        since: item.status?.updatedAt ? Date.parse(item.status.updatedAt) : null,
+        iteration: item.iteration?.title ?? null,
+        assignees: item.content.assignees.nodes.map((assignee) => assignee.login),
+        milestone: item.content.milestone?.title ?? null,
+        prs: item.content.closedByPullRequestsReferences.nodes.filter((pr) => !pr.isDraft),
+      }));
+  } else if (ws.board && !errors.board) {
+    errors.board = `Board ${ws.board.owner} #${ws.board.number} not found, or gh lacks the read:project scope.`;
+  }
+  if (prs) {
+    model.openPrsTotal = prs.search.issueCount;
+    model.openPrs = prs.search.nodes.filter((pr) => pr.number).map(prRow);
+  }
+  return model;
+}
+
+/** Whether a check state is a failure. */
+const failing = (state) => state === "FAILURE" || state === "ERROR";
+
+/**
+ * Loads the account: every repository in scope with its open counts and checks, your review
+ * requests, your PRs and your issues. With picked repositories, the searches keep only theirs.
+ * @param {object} config The settings.
+ * @returns {Promise<object>} The account's model, with a failure in `error`.
+ */
+export async function loadAccount(config) {
+  const { queries } = config.account;
+  const data = await graphql(
+    ACCOUNT,
+    { reviewQuery: queries.review, mineQuery: queries.mine, myPrsQuery: queries.myPrs },
+    { partial: true },
+  );
+  const repos = data.viewer.repositories.nodes.filter((repo) => inScope(config.account, repo));
+  const scoped = new Set(repos.map((repo) => repo.nameWithOwner));
+  // "All" keeps everything a search finds, such as a review on a repository you are not in.
+  const keep = (item) => !Array.isArray(config.account.repos) || scoped.has(item.repo);
+  const reviews = data.reviews.nodes.filter((pr) => pr.number).map(prRow).filter(keep);
+  const myPrs = data.myPrs.nodes.filter((pr) => pr.number).map(prRow).filter(keep);
+  const mine = data.mine.nodes
+    .filter((issue) => issue.number)
+    .map((issue) => {
+      const standing = standingOnBoards(config, issue);
+      return {
+        kind: "issue",
+        repo: issue.repository.nameWithOwner,
+        number: issue.number,
+        title: issue.title,
+        url: issue.url,
+        updatedAt: Date.parse(issue.updatedAt),
+        workspace: standing.ws?.name ?? null,
+        status: standing.status,
+        iteration: standing.iteration,
+        milestone: issue.milestone?.title ?? null,
+      };
+    })
+    .filter(keep);
+  return {
+    viewer: data.viewer.login,
+    reposTotal: data.viewer.repositories.totalCount,
+    repos: repos.map((repo) => ({
+      repo: repo.nameWithOwner,
+      url: repo.url,
+      isPrivate: repo.isPrivate,
+      isArchived: repo.isArchived,
+      pushedAt: repo.pushedAt ? Date.parse(repo.pushedAt) : null,
+      issues: repo.issues.totalCount,
+      prs: repo.pullRequests.totalCount,
+      branch: repo.defaultBranchRef?.name ?? null,
+      checks: repo.defaultBranchRef?.target?.statusCheckRollup?.state ?? null,
+    })),
+    reviews,
+    myPrs,
+    mine,
+    counts: {
+      reviews: Array.isArray(config.account.repos) ? reviews.length : data.reviews.issueCount,
+      myPrs: Array.isArray(config.account.repos) ? myPrs.length : data.myPrs.issueCount,
+      mine: Array.isArray(config.account.repos) ? mine.length : data.mine.issueCount,
+    },
+    redRepos: repos.filter((repo) => failing(repo.defaultBranchRef?.target?.statusCheckRollup?.state)).length,
+    redPrs: myPrs.filter((pr) => failing(pr.checks)).length,
+    queries: { review: queries.review, myPrs: queries.myPrs, mine: queries.mine },
+  };
+}
+
+/**
+ * Loads everything: the account and every workspace, each failing on its own.
+ * @param {object} config The settings.
+ * @returns {Promise<object>} `{ version, fetchedAt, account, workspaces, errors }`.
+ */
+export async function loadAll(config) {
+  const errors = {};
+  const [account, ...workspaces] = await Promise.all([
+    part(errors, "account", loadAccount(config)),
+    ...config.workspaces.map((ws) =>
+      loadWorkspace(ws).catch((error) => ({ fetchedAt: Date.now(), errors: { github: String(error.message ?? error) } })),
+    ),
+  ]);
+  return {
+    version: MODEL_VERSION,
+    fetchedAt: Date.now(),
+    errors,
+    account,
+    workspaces: Object.fromEntries(config.workspaces.map((ws, index) => [ws.name, workspaces[index]])),
+  };
+}
+
+/**
+ * The repository and number of a pinned item, from its fields or its URL.
+ * @param {{ repo?: string, url?: string }} item A focus item.
+ * @returns {string | null} `owner/name`, or null when neither says.
+ */
+export function repoOfItem(item) {
+  if (item.repo) return item.repo;
+  const match = /github\.com\/([^/]+\/[^/]+)\/(?:issues|pull)\//.exec(item.url ?? "");
+  return match ? match[1] : null;
+}
+
+/**
+ * Each pinned issue or PR's standing, keyed by `owner/name#number`: `{ state, status, review }`.
+ * `state` is OPEN, CLOSED or MERGED; `status` is an issue's status on a workspace's board;
+ * `review` is a PR's review decision. The ones that do not apply are null.
+ * @param {object} config The settings.
+ * @param {{ repo: string, number: number }[]} picks The pinned items.
+ * @returns {Promise<Record<string, { state: string | null, status: string | null, review: string | null }>>}
+ */
+export async function loadPickStates(config, picks) {
+  const byRepo = {};
+  for (const pick of picks) (byRepo[pick.repo] ??= new Set()).add(pick.number);
+  if (!Object.keys(byRepo).length) return {};
+  const { query, aliases } = pickStates(Object.fromEntries(Object.entries(byRepo).map(([repo, set]) => [repo, [...set]])));
+  const data = await graphql(query, {}, { partial: true });
   const states = {};
-  for (const number of numbers) {
-    const node = data.repository[`n${number}`];
-    states[number] = {
-      state: node?.state ?? null,
-      status: node?.projectItems ? (boardItem(config, node)?.status?.name ?? null) : null,
-      review: node?.reviewDecision ?? null,
-    };
+  for (const [repo, numbers] of Object.entries(byRepo)) {
+    for (const number of numbers) {
+      const node = data?.[aliases[repo]]?.[`n${number}`];
+      states[`${repo}#${number}`] = {
+        state: node?.state ?? null,
+        status: node?.projectItems ? standingOnBoards(config, node).status : null,
+        review: node?.reviewDecision ?? null,
+      };
+    }
   }
   return states;
 }

@@ -5,6 +5,7 @@
 
 import { exec, readTextFile, writeTextFile } from "herdr";
 import { stateDir } from "./config.js";
+import { repoOfItem } from "./data.js";
 
 const DAY_MS = 86400000;
 
@@ -41,6 +42,27 @@ function fromDays(days) {
   return items.map((item) => ({ ...item, added: item.added ?? firstSeen(item.id) }));
 }
 
+/**
+ * The id of a pinned GitHub item.
+ * @param {string} kind "issue" or "pr".
+ * @param {string | null} repo `owner/name`.
+ * @param {number} number The issue or PR number.
+ * @returns {string} The item's id, unique across repositories.
+ */
+export const pickId = (kind, repo, number) => `${kind}-${repo}#${number}`;
+
+/**
+ * An item as the current version keeps it: a GitHub item pinned before workspaces gets its
+ * repository from its URL, and an id that names it.
+ * @param {object} item A focus item.
+ * @returns {object} The item, upgraded when needed.
+ */
+function withRepo(item) {
+  if (item.kind === "todo" || item.repo) return item;
+  const repo = repoOfItem(item);
+  return repo ? { ...item, repo, id: pickId(item.kind, repo, item.number) } : item;
+}
+
 /** A focus list stored on disk, written back only over the version it was read from. */
 export class FocusStore {
   constructor() {
@@ -54,7 +76,7 @@ export class FocusStore {
     this.snapshot = text;
     try {
       const data = text ? JSON.parse(text) : {};
-      this.list = data.items ?? fromDays(data.days ?? {});
+      this.list = (data.items ?? fromDays(data.days ?? {})).map(withRepo);
     } catch (error) {
       console.log(`alpmeister: focus.json unreadable, starting empty: ${error}`);
       this.list = [];
@@ -81,14 +103,23 @@ export class FocusStore {
     return this.list;
   }
 
-  /** Whether the list already holds this GitHub item. */
-  has(kind, number) {
-    return this.list.some((item) => item.kind === kind && item.number === number);
+  /**
+   * Whether the list already holds this GitHub item.
+   * @param {string} kind "issue" or "pr".
+   * @param {string} repo `owner/name`.
+   * @param {number} number The issue or PR number.
+   * @returns {boolean}
+   */
+  has(kind, repo, number) {
+    return this.list.some((item) => item.kind === kind && item.repo === repo && item.number === number);
   }
 
-  /** Adds an item, dated today. */
+  /**
+   * Adds an item, dated today.
+   * @param {object} item A todo (`{ kind: "todo", text }`) or a GitHub item with `repo` and `number`.
+   */
   add(item) {
-    const id = item.kind === "todo" ? `todo-${Date.now()}` : `${item.kind}-${item.number}`;
+    const id = item.kind === "todo" ? `todo-${Date.now()}` : pickId(item.kind, item.repo, item.number);
     this.list = [...this.list, { id, done: false, added: today(), ...item }];
   }
 

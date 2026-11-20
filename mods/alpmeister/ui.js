@@ -10,10 +10,44 @@ const DAY = 86400000;
 /** Opens a URL in the default browser. */
 export const openUrl = (url) => exec("open", [url]).catch((error) => console.log(`alpmeister: open failed: ${error}`));
 
-/** A duration as its largest unit: "3d", "5h", "12m". */
+/**
+ * A GitHub item's key, unique across repositories: "owner/name#12".
+ * @param {{ repo?: string | null, number: number }} item An issue or PR.
+ * @returns {string}
+ */
+export const itemKey = (item) => `${item.repo ?? ""}#${item.number}`;
+
+/**
+ * A repository's name without its owner.
+ * @param {string | null | undefined} repo `owner/name`.
+ * @returns {string}
+ */
+export const shortRepo = (repo) => repo?.split("/")[1] ?? "";
+
+/**
+ * A Claude prompt for an item: `{number}` and `{repo}` filled in.
+ * @param {string} template The prompt from the settings.
+ * @param {{ repo?: string | null, number: number }} item The issue or PR.
+ * @returns {string}
+ */
+export const fillPrompt = (template, item) =>
+  template
+    .split("{number}")
+    .join(String(item.number))
+    .split("{repo}")
+    .join(item.repo ?? "");
+
+/**
+ * A duration as its largest unit: "2y", "4mo", "3d", "5h", "12m".
+ * @param {number} ms The duration in milliseconds.
+ * @returns {string}
+ */
 export function ago(ms) {
   const minutes = Math.max(0, Math.round(ms / 60000));
-  if (minutes >= 1440) return `${Math.floor(minutes / 1440)}d`;
+  const days = Math.floor(minutes / 1440);
+  if (days >= 365) return `${Math.floor(days / 365)}y`;
+  if (days >= 60) return `${Math.floor(days / 30)}mo`;
+  if (minutes >= 1440) return `${days}d`;
   if (minutes >= 60) return `${Math.floor(minutes / 60)}h`;
   return `${minutes}m`;
 }
@@ -232,8 +266,11 @@ export function Toggle(id, label, on, onToggle, tooltip) {
     .child(label);
 }
 
-/** A clickable list row: the number, `lead` chips, the title, then chips and buttons on the right. */
-export function Row(id, { number, lead = [], title, url, chips = [], buttons = [], dim = false }) {
+/**
+ * A clickable list row: the number, `lead` chips, the title, then chips and buttons on the right.
+ * `repo` adds the repository's name before the title, for lists that span repositories.
+ */
+export function Row(id, { number, repo, lead = [], title, url, chips = [], buttons = [], dim = false }) {
   const t = theme();
   return h_flex()
     .id(id)
@@ -249,6 +286,7 @@ export function Row(id, { number, lead = [], title, url, chips = [], buttons = [
     .hover((style) => style.bg(t.hover))
     .on_click(() => url && openUrl(url))
     .when(number != null, (el) => el.child(div().flex_none().w(44).text_color(t.dim).child(`#${number}`)))
+    .when(Boolean(repo), (el) => el.child(Chip(shortRepo(repo), { color: t.dim, id: `${id}-repo`, tooltip: repo })))
     .children(lead)
     .child(
       div()

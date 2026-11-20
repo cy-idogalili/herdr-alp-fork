@@ -1,21 +1,41 @@
-// Alpmeister's settings: which repository, board and queries it reads. They live outside
-// this repo, in ~/.config/alp/alpmeister.json, so no team's names ship with the mod.
-// `alpmeister.example.json` beside this file shows every key.
+// Alpmeister's settings: which of your repositories it looks at, and its workspaces. They live
+// outside this repo, in ~/.config/alp/alpmeister.json, so no team's names ship with the mod.
+// The Settings tab writes them; `alpmeister.example.json` beside this file shows every key.
+//
+//   account     your GitHub as a whole: the repos in scope, the Claude prompts, your local
+//               clones, and the @me searches the Daypack lists
+//   workspaces  a repository, a project board, or both, each with its own settings. The
+//               Dashboard shows one at a time, or all your repos.
+//
+// A file in the earlier one-repo shape (top-level `repo` and `project`) reads as one workspace.
 
 import { home, readTextFile } from "herdr";
 
-const DEFAULTS = {
-  project: { statusField: "Status", iterationField: "Iteration" },
-  statuses: ["New", "Todo", "In Progress", "In Review", "Done"],
-  notStarted: ["New", "Todo"],
-  inFlight: { statuses: ["In Progress", "In Review"], excludeTypes: [] },
-  mineHidden: ["New", "Done"],
+export const DEFAULT_ISSUE_PROMPT = "Work on GitHub issue {repo}#{number}: read it, plan, then implement.";
+export const DEFAULT_PR_PROMPT = "Review GitHub PR {repo}#{number} and summarize what needs attention.";
+
+const ACCOUNT_DEFAULTS = {
+  repos: "all",
+  exclude: [],
+  archived: false,
+  launch: { issue: DEFAULT_ISSUE_PROMPT, pr: DEFAULT_PR_PROMPT },
+  folders: {},
   queries: {
-    triage: "is:issue is:open label:triage",
     review: "is:pr draft:false is:open review-requested:@me sort:updated-desc",
     mine: "is:issue is:open assignee:@me sort:updated-desc",
     myPrs: "is:pr is:open author:@me draft:false sort:updated-desc",
   },
+};
+
+const WORKSPACE_DEFAULTS = {
+  name: "",
+  repo: null,
+  board: null,
+  statuses: ["New", "Todo", "In Progress", "In Review", "Done"],
+  notStarted: ["New", "Todo"],
+  inFlight: { statuses: ["In Progress", "In Review"], excludeTypes: [] },
+  mineHidden: ["New", "Done"],
+  queries: { triage: "is:issue is:open label:triage" },
   bugs: {
     query: "is:issue is:open type:Bug",
     priorityField: "Priority",
@@ -29,49 +49,183 @@ const DEFAULTS = {
   },
   customer: { labelMatch: "customer" },
   nightly: null,
-  launch: { folder: "", issue: "", pr: "" },
 };
 
-/** Where the settings file lives. */
+const BOARD_DEFAULTS = { statusField: "Status", iterationField: "Iteration" };
+
+/**
+ * Where the settings file lives.
+ * @returns {string} The absolute path of alpmeister.json.
+ */
 export const configPath = () => `${home()}/.config/alp/alpmeister.json`;
 
-/** Where Alpmeister keeps its own state: the last result and today's focus. */
+/**
+ * Where Alpmeister keeps its own state: the last result and today's focus.
+ * @returns {string} The absolute state folder.
+ */
 export const stateDir = () => `${home()}/.local/state/alp`;
 
-/** A path with a leading `~` made absolute. */
+/**
+ * A path with a leading `~` made absolute.
+ * @param {string | null | undefined} path A path, possibly starting with `~`.
+ * @returns {string | null | undefined} The path with `~` replaced by the home folder.
+ */
 export const expandHome = (path) => (path?.startsWith("~") ? home() + path.slice(1) : path);
 
 /**
- * Reads and checks the settings file. Resolves with `{ config }`, or `{ error }` naming what
- * is missing, so the view can say how to fix it.
+ * A path under the home folder written with `~`, as the settings file keeps it.
+ * @param {string} path An absolute path.
+ * @returns {string} The same path, starting with `~` when it is under the home folder.
+ */
+export function tildePath(path) {
+  const base = home();
+  const trimmed = path.replace(/\/+$/, "");
+  return trimmed === base || trimmed.startsWith(`${base}/`) ? `~${trimmed.slice(base.length)}` : trimmed;
+}
+
+/** A deep copy of plain JSON data. */
+const copy = (value) => JSON.parse(JSON.stringify(value));
+
+/** A list setting: the value when it is an array, else the fallback. */
+const list = (value, fallback) => (Array.isArray(value) ? value : fallback);
+
+/**
+ * One workspace with every key filled in from the defaults.
+ * @param {object} raw A workspace as the file holds it.
+ * @returns {object} The workspace with defaults, `repo` checked and `board` filled.
+ */
+export function normalizeWorkspace(raw) {
+  const base = copy(WORKSPACE_DEFAULTS);
+  const repo = typeof raw.repo === "string" && /^[^/\s]+\/[^/\s]+$/.test(raw.repo) ? raw.repo : null;
+  const board =
+    raw.board?.owner && Number.isInteger(raw.board?.number) ? { ...BOARD_DEFAULTS, ...raw.board } : null;
+  return {
+    ...base,
+    ...raw,
+    name: String(raw.name ?? "").trim() || board?.title || repo?.split("/")[1] || "Workspace",
+    repo,
+    board,
+    statuses: list(raw.statuses, base.statuses),
+    notStarted: list(raw.notStarted, base.notStarted),
+    inFlight: { ...base.inFlight, ...raw.inFlight },
+    mineHidden: list(raw.mineHidden, base.mineHidden),
+    queries: { ...base.queries, ...raw.queries },
+    bugs: { ...base.bugs, ...raw.bugs },
+    spotlight: { ...base.spotlight, ...raw.spotlight },
+    customer: { ...base.customer, ...raw.customer },
+    nightly: raw.nightly?.workflow ? { branch: "main", events: ["schedule"], checks: [], ...raw.nightly } : null,
+  };
+}
+
+/**
+ * The account section with every key filled in from the defaults.
+ * @param {object} raw The account section as the file holds it.
+ * @returns {object} The account settings.
+ */
+export function normalizeAccount(raw) {
+  const base = copy(ACCOUNT_DEFAULTS);
+  return {
+    ...base,
+    ...raw,
+    repos: Array.isArray(raw.repos) ? raw.repos : "all",
+    exclude: list(raw.exclude, base.exclude),
+    archived: Boolean(raw.archived),
+    launch: { ...base.launch, ...raw.launch },
+    folders: { ...base.folders, ...raw.folders },
+    queries: { ...base.queries, ...raw.queries },
+  };
+}
+
+/**
+ * Reads a file in the one-repo shape as the new one: its repository and board become one
+ * workspace, `launch.folder` becomes that repository's folder, and the @me searches move to
+ * the account.
+ * @param {object} raw The parsed file.
+ * @returns {object} `{ account, workspaces }` as the file would hold them.
+ */
+function upgradeOneRepo(raw) {
+  const { repo, project, launch = {}, queries = {}, ...rest } = raw;
+  const { folder, ...prompts } = launch;
+  const { triage, review, mine, myPrs } = queries;
+  const workspace = { ...rest, repo, queries: triage ? { triage } : {} };
+  if (project?.owner && Number.isInteger(project?.number)) workspace.board = project;
+  return {
+    account: {
+      repos: "all",
+      launch: prompts,
+      folders: folder && repo ? { [repo]: folder } : {},
+      queries: Object.fromEntries(Object.entries({ review, mine, myPrs }).filter(([, value]) => value)),
+    },
+    workspaces: repo || workspace.board ? [workspace] : [],
+  };
+}
+
+/**
+ * The settings from parsed file contents, in the current shape with every default filled in.
+ * @param {object} raw The parsed file, in either shape.
+ * @returns {{ account: object, workspaces: object[] }} The settings.
+ */
+export function normalizeConfig(raw) {
+  const shaped = raw.repo || raw.project ? upgradeOneRepo(raw) : raw;
+  const workspaces = list(shaped.workspaces, []).map(normalizeWorkspace);
+  // Names key the Dashboard switch and the cache, so they stay unique.
+  const seen = new Set();
+  for (const workspace of workspaces) {
+    let name = workspace.name;
+    for (let n = 2; seen.has(name); n += 1) name = `${workspace.name} ${n}`;
+    workspace.name = name;
+    seen.add(name);
+  }
+  return { account: normalizeAccount(shaped.account ?? {}), workspaces };
+}
+
+/**
+ * Reads the settings file. A missing file gives the defaults: every repository you can reach,
+ * no workspaces. Resolves with `{ config, text }`, or `{ error, text }` when the file cannot be
+ * read, so the view can say how to fix it. `text` is the file as read, for writing it back.
+ * @returns {Promise<{ config?: object, error?: string, text: string | null }>}
  */
 export async function loadConfig() {
   const text = await readTextFile(configPath());
-  if (!text) return { error: `No settings file. Copy alpmeister.example.json to ${configPath()} and fill it in.` };
+  if (!text) return { config: normalizeConfig({}), text };
   let raw;
   try {
     raw = JSON.parse(text);
   } catch (error) {
-    return { error: `${configPath()} is not valid JSON: ${error}` };
+    return { error: `${configPath()} is not valid JSON: ${error}`, text };
   }
-  const [owner, name] = String(raw.repo ?? "").split("/");
-  if (!owner || !name) return { error: `${configPath()} needs "repo": "owner/name".` };
-  if (!raw.project?.owner || !Number.isInteger(raw.project?.number)) {
-    return { error: `${configPath()} needs "project": { "owner": "...", "number": 1 }.` };
-  }
-  const config = {
-    ...DEFAULTS,
-    ...raw,
-    owner,
-    name,
-    project: { ...DEFAULTS.project, ...raw.project },
-    inFlight: { ...DEFAULTS.inFlight, ...raw.inFlight },
-    queries: { ...DEFAULTS.queries, ...raw.queries },
-    bugs: { ...DEFAULTS.bugs, ...raw.bugs },
-    spotlight: { ...DEFAULTS.spotlight, ...raw.spotlight },
-    customer: { ...DEFAULTS.customer, ...raw.customer },
-    launch: { ...DEFAULTS.launch, ...raw.launch },
-  };
-  config.launch.folder = expandHome(config.launch.folder);
-  return { config };
+  return { config: normalizeConfig(raw ?? {}), text };
+}
+
+/**
+ * The local clone of a repository, from the account's folders.
+ * @param {object} config The settings.
+ * @param {string | null} repo `owner/name`.
+ * @returns {string} The absolute folder, or "" when none is set.
+ */
+export function folderOf(config, repo) {
+  return (expandHome(config.account.folders[repo ?? ""]) ?? "").replace(/\/+$/, "");
+}
+
+/**
+ * Whether a repository is in the account's scope.
+ * @param {object} account The account settings.
+ * @param {{ nameWithOwner: string, isArchived?: boolean }} repo The repository.
+ * @returns {boolean} True when the Dashboard and Daypack include it.
+ */
+export function inScope(account, repo) {
+  if (account.exclude.includes(repo.nameWithOwner)) return false;
+  if (Array.isArray(account.repos)) return account.repos.includes(repo.nameWithOwner);
+  return account.archived || !repo.isArchived;
+}
+
+/**
+ * The workspace a project board belongs to, if any.
+ * @param {object} config The settings.
+ * @param {string} owner The board owner's login.
+ * @param {number} number The board number.
+ * @returns {object | null} The first workspace on that board.
+ */
+export function workspaceOfBoard(config, owner, number) {
+  return config.workspaces.find((ws) => ws.board?.owner === owner && ws.board?.number === number) ?? null;
 }

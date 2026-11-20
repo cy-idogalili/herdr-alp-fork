@@ -1,5 +1,5 @@
-// Project status: tiles for review requests, open bugs by priority, triage bugs and the
-// nightly run, then the next milestone.
+// A workspace's status: tiles for open bugs by priority, triage bugs, customer issues and the
+// nightly run, then the next milestone. `config` here is the workspace's settings.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
@@ -107,7 +107,7 @@ export function Milestone(config, model) {
  * an element, or a list of them. `action` is a
  * URL to open or a function to run on click.
  */
-function Tile(id, label, value, sub, color, action) {
+export function Tile(id, label, value, sub, color, action) {
   const t = theme();
   return v_flex()
     .id(id)
@@ -216,7 +216,7 @@ export function Tiles(config, model, { wide }) {
       bugs ? String(bugs.total) : "–",
       bugs ? BugPriorities(t, config, bugs) : (model.errors.bugs ?? ""),
       t.foreground,
-      searchUrl(config, model.queries.bugsQuery),
+      searchUrl(config.repo, model.queries.bugsQuery),
     ),
     Tile(
       "tile-triage",
@@ -224,7 +224,7 @@ export function Tiles(config, model, { wide }) {
       String(counts?.triage ?? "–"),
       "waiting for triage",
       t.foreground,
-      searchUrl(config, model.queries.triageQuery),
+      searchUrl(config.repo, model.queries.triageQuery),
     ),
     Tile(
       "tile-customer",
@@ -232,7 +232,7 @@ export function Tiles(config, model, { wide }) {
       customer ? String(customer.count) : "–",
       customer ? customer.labels.join(", ") || "No customer label" : (model.errors.customer ?? ""),
       t.foreground,
-      customer?.query ? searchUrl(config, customer.query) : null,
+      customer?.query ? searchUrl(config.repo, customer.query) : null,
     ),
     Tile("tile-nightly", "Nightly", nightlyValue, nightlySub, nightlyColor, model.nightly?.url),
   ];

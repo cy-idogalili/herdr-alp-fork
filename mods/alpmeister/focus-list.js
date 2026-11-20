@@ -5,7 +5,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, Input } from "gpui-base";
 import { theme } from "herdr";
 import { daysSinceAdded } from "./focus.js";
-import { Card, Chip, ICONS, IconButton, NeedsYou, Note, openUrl, statusColor } from "./ui.js";
+import { Card, Chip, ICONS, IconButton, NeedsYou, Note, fillPrompt, openUrl, shortRepo, statusColor } from "./ui.js";
 
 // The item types in the order the Daypack lists them, each under its own heading.
 const SECTIONS = [
@@ -93,7 +93,13 @@ function FocusItem(item, actions) {
     .when(item.kind !== "todo", (el) => el.cursor_pointer().on_click(() => openUrl(item.url)))
     .child(Checkbox(`fc-check-${item.id}`, item.done, (cx) => actions.toggle(item.id, cx)))
     .when(item.kind !== "todo", (el) =>
-      el.child(Chip(`${item.kind === "pr" ? "PR" : ""} #${item.number}`.trim(), { color: t.dim })),
+      el.child(
+        Chip(`${item.kind === "pr" ? "PR " : ""}${shortRepo(item.repo)}#${item.number}`, {
+          color: t.dim,
+          id: `fc-num-${item.id}`,
+          tooltip: item.repo ?? "",
+        }),
+      ),
     )
     .child(
       div()
@@ -117,9 +123,9 @@ function FocusItem(item, actions) {
     )
     .when(Boolean(command), (el) =>
       el.child(
-        IconButton(`fc-go-${item.id}`, ICONS.claude, () => actions.launch(item.kind, item.number), {
+        IconButton(`fc-go-${item.id}`, ICONS.claude, () => actions.launch(item), {
           picture: true,
-          tooltip: `Open a Claude tab running ${command.replace("{number}", item.number)}`,
+          tooltip: `Open a Claude tab running ${fillPrompt(command, item)}`,
         }),
       ),
     )
@@ -127,7 +133,7 @@ function FocusItem(item, actions) {
 }
 
 /**
- * The focus card. `actions`: `{ toggle(id, cx), remove(id, cx), launch(kind, number), command(kind) }`,
+ * The focus card. `actions`: `{ toggle(id, cx), remove(id, cx), launch(item), command(kind) }`,
  * where `command` is the configured Claude command for that kind, or "" when none is set.
  * `input` is the todo field's InputState.
  */
