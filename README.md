@@ -1,3 +1,5 @@
+<p align="center"><img src="icon.png" width="160" alt="Alp: a llama in circuit goggles"></p>
+
 # herdr-alp
 
 A layout for the [Herdr](https://herdr.dev) desktop app, plus the Claude Code plugin that feeds it.
@@ -19,9 +21,11 @@ What's inside:
 | `mods/pane-agent/` | pane header: icon, name, folder, model/effort/context chips, worktree, branch, status, split/zoom/close |
 | `mods/alp-agents/` | sidebar agents list: grouped or priority views, sub-agents under their parent, each Space shown by its avatar |
 | `mods/alpmeister/` | a team lead's start-of-day tab: a Dashboard of all your repos or one workspace (bugs by priority, triage, customer issues, nightly, priorities, milestone, team in flight), Herds, Daypack (focus, reviews, your PRs, your issues) and Settings |
-| `mods/daypack/` | Daypack: a right sidebar beside the terminals with today's Lineup items, shown or hidden from a Daypack button in the tab bar |
+| `mods/daypack/` | Daypack: a right sidebar beside the terminals with today's trail, shown or hidden from the Daypack button in the tab bar |
+| `mods/alp-tabs/` | the tab bar: Herdr's tabs with a sheep beside + that opens Alpmeister, and the Daypack button after Changes |
 | `plugins/alp/` | Claude Code plugin that writes the status files the mods read |
 | `RECIPE.md` | the brief to rebuild it from scratch (herdr.dev format) |
+| `icon.png` | Alp's logo |
 | `sync.sh` | copy the layout and mods into Herdr's home, or pull live edits back |
 | `setup.sh` | one-step install: checks `gh`, syncs, installs the plugin and opens Alpmeister's Settings |
 
@@ -78,13 +82,15 @@ Restart running Claude sessions after installing or changing the plugin.
 ## Alpmeister
 
 In an alp cooperative, the Alpmeister plans the season and oversees the alp, while the senn
-works the herd. The `alpmeister` mod is that view for a team lead, opened as a tab:
+works the herd. The `alpmeister` mod is that view for a team lead, opened as a tab: click the
+sheep beside + in the tab bar (it goes to the space's Alpmeister tab when one is open), or
 
 ```sh
 herdr-app do tab.new '{"mod":"alpmeister","name":"Alpmeister"}'
 ```
 
-It has four tabs: Dashboard, Herds, Daypack and Settings. It works before you set anything:
+It has three tabs: Dashboard, Herds and Daypack, and a gear beside Refresh that opens its
+settings in a tab of their own. It works before you set anything:
 the Dashboard starts on all your repositories.
 
 - **Dashboard:** your GitHub as a whole, or one workspace, picked from a row of pills on top.
@@ -101,16 +107,23 @@ the Dashboard starts on all your repositories.
   from every repository in scope. Both buttons open a Claude Code tab running the prompt set in
   Settings, in that repository's local clone, and show only when the prompt is set.
 - **Herds:** your Claude Code sessions and how they are linked. A session that messaged others
-  (`SendMessage`) or made their worktrees is a herdsman: drawn on top, with a line down to each
+  (`SendMessage`) or made their worktrees is a herdsman, marked with a crook: drawn on top, with a line down to each
   of its herd, labelled `msg 12:36` for its latest message or dotted `worktree`. Who and when
   only: no message text is shown. Sessions with no link graze: a card each, in space order, with a
   stripe in the space's color and its avatar in the corner. Every box and card ends with
-  the session's git branch. A click opens
+  the session's git branch. A session that started agents (the Agent tool, forks included) leads
+  them too: a smaller box per agent, a lamb for a fork and a herding dog for any other agent, with what it is for and how long it has run (or when it
+  finished), on a line labelled with its type, dotted for a background agent. An agent started
+  by an agent sits under it. Agents that finished over 30 minutes ago fold into "+ N finished
+  earlier". A click opens
   a session's tab. A background session is shown in the tab titled with its name, or in the
   tab picked with Link a tab. It reads Claude Code's files (`~/.claude/sessions`, the
-  sessions' transcripts) and redraws when a session starts, ends or changes status. Open it
+  sessions' transcripts and agent files) and redraws when a session starts, ends or changes
+  status, and every few seconds while its agents work. Open it
   directly with `herdr-app do tab.new '{"mod":"alpmeister","props":{"tab":"herds"}}'`.
-- **Settings:** everything below, as a form (see [Settings](#settings)).
+- **Settings:** everything below, as a form (see [Settings](#settings)), in an "Alpmeister
+  settings" tab opened from the gear (or gone to, when it is already open). A save there makes
+  every Alpmeister tab fetch again.
 - **Refresh:** Dashboard and Daypack fetch when the tab opens and from its Refresh button only. The "updated" time turns
   amber after 2 hours.
 - **Today's focus** shows each pinned issue's board status and each pinned PR's review
@@ -123,7 +136,7 @@ the Dashboard starts on all your repositories.
 
 ### Settings
 
-The Settings tab edits `~/.config/alp/alpmeister.json`. Its choices come from GitHub through
+The settings tab edits `~/.config/alp/alpmeister.json`. Its choices come from GitHub through
 the `gh` CLI (your repositories, your account's and organizations' project boards, a board's
 statuses and fields, a repository's workflows) and from your disk (local clones). Alpmeister
 only reads GitHub, never writes to it. Nothing is saved until Save, which keeps the previous

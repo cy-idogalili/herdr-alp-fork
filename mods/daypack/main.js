@@ -1,12 +1,11 @@
 // Daypack: what you carry through the day, in a column on the window's right edge beside the
-// terminals, and the tab bar button that shows or hides it. It holds the Lineup items, each
-// issue and PR with the Claude button Alpmeister shows. The layout places one copy of each:
-// `props.button` draws the button. Both read the focus list Alpmeister keeps, and reload when
-// either side changes it.
+// terminals. It holds today's trail, each issue and PR with the Claude button Alpmeister
+// shows. It reads the focus list Alpmeister keeps, and reloads when Alpmeister changes it.
+// The button that shows or hides it is in Alp's tab bar (`alp-tabs`).
 
 import { View, div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, home, layout, panes, props, readTextFile, run, setShared, shared, spaces, theme } from "herdr";
+import { exec, home, panes, readTextFile, run, setShared, shared, spaces, theme } from "herdr";
 import { FocusFile } from "./focus-file.js";
 
 const SIDEBAR_ID = "daypack";
@@ -63,7 +62,7 @@ async function loadLaunch() {
 /**
  * The repository of a GitHub item, from its field or, for an item pinned before workspaces,
  * its URL.
- * @param {{ repo?: string, url?: string }} item A Lineup item.
+ * @param {{ repo?: string, url?: string }} item An item on the trail.
  * @returns {string} `owner/name`, or "".
  */
 function repoOf(item) {
@@ -82,17 +81,6 @@ const fillPrompt = (template, item) =>
 
 /** An item's number as the list shows it: "repo#12". */
 const label = (item) => `${repoOf(item).split("/")[1] ?? ""}#${item.number}`;
-
-/** The layout node with this id, or null. */
-function findNode(node, id) {
-  if (!node || typeof node !== "object") return null;
-  if (node.id === id) return node;
-  for (const child of node.children ?? []) {
-    const found = findNode(child, id);
-    if (found) return found;
-  }
-  return null;
-}
 
 export default class Daypack extends View {
   init(_props, cx) {
@@ -174,41 +162,6 @@ export default class Daypack extends View {
     });
   }
 
-  /**
-   * The tab bar button: the backpack icon alone, in a 26px square like the bar's + button. The
-   * icon takes the accent color while any item is open.
-   */
-  button(t, count) {
-    const color = count > 0 ? t.accent : null;
-    const open = !(findNode(layout(), SIDEBAR_ID)?.hidden ?? true);
-    return h_flex()
-      .size_full()
-      .items_center()
-      .pr(10)
-      .bg(t.chrome)
-      .border_b(1)
-      .border_color(t.border)
-      .child(
-        h_flex()
-          .id("daypack-button")
-          .size(26)
-          .flex_none()
-          .items_center()
-          .justify_center()
-          .rounded(6)
-          .cursor_pointer()
-          .text_color(color ?? (open ? t.foreground : t.muted))
-          .bg(open ? t.selected : t.chrome)
-          .hover((style) => style.bg(t.hover).text_color(color ?? t.foreground))
-          .tooltip(open ? "Hide the Daypack" : "Show the Daypack")
-          .on_click((_event, cx) => {
-            cx.stop_propagation();
-            run("layout.toggle", { id: SIDEBAR_ID });
-          })
-          .child(svg(DAYPACK_ICON).size(14).flex_none()),
-      );
-  }
-
   /** One item: its checkbox, its title, its repository and number, and its Claude button. A click on the title opens it on GitHub. */
   row(t, item) {
     const label = item.kind === "todo" ? item.text : item.title;
@@ -252,7 +205,6 @@ export default class Daypack extends View {
     if ((shared(STAMP_KEY) ?? null) !== this.stamp) this.reload(cx);
     const items = this.store.items();
     const count = items.filter((item) => !item.done).length;
-    if (props()?.button) return this.button(t, count);
     return v_flex()
       .id("daypack")
       .size_full()
@@ -292,9 +244,9 @@ export default class Daypack extends View {
       .child(
         v_flex()
           .py(6)
-          .child(div().px(12).pt(6).text_size(10.5).font_semibold().text_color(t.dim).child("LINEUP"))
+          .child(div().px(12).pt(6).text_size(10.5).font_semibold().text_color(t.dim).child("TODAY'S TRAIL"))
           .when(!items.length, (el) =>
-            el.child(div().px(12).py(6).text_size(11.5).text_color(t.dim).child("Nothing in the Lineup.")),
+            el.child(div().px(12).py(6).text_size(11.5).text_color(t.dim).child("The trail is clear.")),
           )
           .children(
             SECTIONS.flatMap((section) => {

@@ -14,7 +14,7 @@ Left to right:
   - **Spaces** and **Agents**: the shipped lists, sharing the rest equally (each at least 90px).
   - **Footer**, 69px: `workspace-chrome` in footer mode (Settings, Add machine).
 - **Work area**:
-  - **Tabs**, 42px: the shipped tab bar, with the Files / Changes panel buttons. Drags the window.
+  - **Tabs**, 42px: Alp's tab bar (`alp-tabs`, the shipped `tabs` with two buttons added). Drags the window. Left to right: the tabs, +, the sheep (Alpmeister), Files, Changes, the Daypack button, then the window buttons where the platform draws none.
   - **Body**, 8px padding and gap: the active tab's panes, each a card with `background` fill, 1px `border` outline (1px `accent` when focused), 10px radius, 8px between cards, framed even when alone. To the right a hidden 368px panel (280–900) stacking the shipped `files` and `changes` panels, opened from the tab bar.
   - **Status bar**, 28px: the shipped `workspace-status`.
 - Theme: Dracula, shipped as the layout's own theme `themes/alp.json` (background `#282a36`, chrome `#21222c`, border `#44475a`, hover `#343746`, dim `#6272a4`, accent `#bd93f9`, working `#f1fa8c`, blocked `#ff5555`, done `#50fa7b`) and set as the root's `theme`. Every color below is a theme name, so another theme from the picker restyles it all.
@@ -44,8 +44,11 @@ Left to right:
 
 ## Built from
 
-- **Layout** `layouts/alp.json`, cloned from the shipped `main` (0.1.14): `root` row with `"theme": "alp"` → `sidebar` column (`brand` block, `sidebar-lists` column of `limits` / `spaces` / `agents` blocks, `sidebar-footer` block) and `work` column (`tabs` block, `work-body` row of `main` block + hidden `panel` column with a `panel-body` stack of `files` / `changes`, `status` block). `main` shows `{ "tab": "active" }` with a `pane` frame whose `header` is `{ "content": { "mod": "pane-agent" }, "reveal": "always", "height": 30, "position": "top" }`.
-- **Shipped mods used**: `workspace-chrome` (brand, and footer with `props: { footer: true }`), `spaces`, `agents`, `tabs`, `files`, `changes`, `workspace-status`. Art borrowed from them: `mods/workspace-chrome/clock.svg`, `mods/workspace-chrome/spinner.svg`.
+- **Layout** `layouts/alp.json`, cloned from the shipped `main` (0.1.14): `root` row with `"theme": "alp"` → `sidebar` column (`brand` block, `sidebar-lists` column of `limits` / `spaces` / `agents` blocks, `sidebar-footer` block) and `work` column (`tabs` block showing `alp-tabs`, `work-body` row of `main` block + hidden `panel` column with a `panel-body` stack of `files` / `changes`, `status` block). `main` shows `{ "tab": "active" }` with a `pane` frame whose `header` is `{ "content": { "mod": "pane-agent" }, "reveal": "always", "height": 30, "position": "top" }`.
+- **Shipped mods used**: `workspace-chrome` (brand, and footer with `props: { footer: true }`), `spaces`, `agents`, `files`, `changes`, `workspace-status`. Art borrowed from them: `mods/workspace-chrome/clock.svg`, `mods/workspace-chrome/spinner.svg`.
+- **`mods/alp-tabs`**, cloned from the shipped `tabs` (0.1.16) with `mod.clone`, which rewrote its own art paths. Added, marked at the top of `main.js`:
+  - The sheep, after +: a 26px button like +, with `sheep.svg` (Alp's own: a fleece outline, a solid face, two legs) at 16px. A click goes to the tab of the space's Alpmeister pane (`panes()` with `mod: "alpmeister"`) or runs `tab.new {mod: "alpmeister", name: "Alpmeister"}`. `selected` while that tab shows. Tooltip "Open Alpmeister" or "Go to Alpmeister".
+  - The Daypack button, after Changes, only when the layout has a `daypack` node: the backpack (`mods/daypack/backpack.svg`) alone in a 26px square, `selected` while the sidebar shows, the icon `accent` while any trail item is open (counted from `~/.local/state/alp/focus.json`, again whenever `shared("alp.focusStamp")` changes). It runs `layout.toggle {id: "daypack"}`.
 - **`mods/usage-limits`**: a `View` reading `~/.local/state/herdr-agents/limits.json` with `readTextFile(home() + …)`, picking the entry for `props.agent` (default `"claude"`). Uses `theme()` and `layout()` (sidebar width for the rail), and `run("layout.resize", { id: "limits", px })` when the fold state changes. Props: `agent`, `block` (default `"limits"`), `height` (96), `foldedHeight` (82). Art: `gauge.svg`.
 - **`mods/pane-agent`**, cloned from the shipped `pane` (0.1.14): `panes()` + `props().pane` for its pane; `readTextFile` of `~/.local/state/herdr-agents/<terminal>.json` every 3 seconds; `exec("git", ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])` in the pane's folder (a worktree when the two differ; the worktree name is the git dir's last part); `run("pane.focus" | "pane.split" | "pane.zoom" | "pane.close")`. Art: `close`, `split-down`, `split-right`, `zoom`, `unzoom`, `worktree` SVGs.
 - **`plugins/alp`**: a Claude Code plugin (hooks module) that writes the status files; nothing in Claude's own status line. Inside a Herdr terminal (`HC_TERMINAL_ID` set) it writes `<terminal>.json` as `{ agent: "claude", model, effort, context_pct, ts }` on `session.start`, on each main-thread `turn.step` (model, effort) and on `session.measure` (context); on `session.end` it empties the file, or after `/clear` only drops `context_pct`. On `session.measure` with rate limits it rewrites only its own entry in `limits.json`: `{ "claude": { five_hour: { used_percentage, resets_at }, seven_day: {…}, ts } }`.
@@ -68,7 +71,7 @@ Left to right:
 A tab mod, `mods/alpmeister`, for a team lead's start of day. It is not placed by the layout:
 open it with `tab.new {mod: "alpmeister"}`.
 
-- **Settings** live in `~/.config/alp/alpmeister.json`, written by the Settings tab, in two parts:
+- **Settings** live in `~/.config/alp/alpmeister.json`, written by the settings tab, in two parts:
   - `account`: your GitHub as a whole. `repos` is `"all"` (every repository you own,
     collaborate on or reach through an organization, archived ones only with `archived`, less
     `exclude`) or a list of `owner/name`. Also the Claude prompts (`launch.issue`, `launch.pr`,
@@ -84,9 +87,13 @@ open it with `tab.new {mod: "alpmeister"}`.
 
 - **What you see**, top to bottom on the `canvas` background, 18px padding, cards with 10px
   radius and a 1px `border`:
-  - A header: four pill tabs, Dashboard, Herds, "Daypack · N" (N open focus items) and Settings
-    ("Settings ·" with unsaved edits), then "Alpmeister" (18px semibold), "updated 4m ago" in
-    `dim` (`working` after 2 hours), and a Refresh text button. Each copy remembers its tab and
+  - A header: three pill tabs, Dashboard, Herds and "Daypack · N" (N open focus items), then
+    "Alpmeister" (18px semibold), "updated 4m ago" in `dim` (`working` after 2 hours), a Refresh
+    text button, and a gear icon button (`mods/workspace-chrome/settings.svg`, tooltip
+    "Settings"). The gear goes to the space's tab named "Alpmeister settings", or opens one:
+    `tab.new {mod: "alpmeister", name: "Alpmeister settings", props: {tab: "settings"}}`. That
+    copy shows a gear and "Alpmeister settings" as its header, then the form, and fetches nothing
+    from GitHub but the form's choices. Each other copy remembers its tab and
     workspace in localStorage; `props.tab` and `props.workspace` open a copy on a given one
     (`tab.new {mod: "alpmeister", props: {tab: "dashboard", workspace: "Team"}}`, `""` for All
     repos).
@@ -146,7 +153,8 @@ open it with `tab.new {mod: "alpmeister"}`.
       hidden when its status is in its workspace's `mineHidden`. Issues on no workspace's board
       go under "No status".
     - Every row in these lists names its repository in a chip after the number.
-  - **Settings**: the settings file as a form. Nothing is written until Save, which writes over
+  - **Settings** (the settings copy): the settings file as a form. A save sets
+    `shared("alp.settingsStamp")`, and every other copy fetches again. Nothing is written until Save, which writes over
     the version it read (or refuses, when the file changed on disk: Revert loads it) and keeps
     the previous file as `alpmeister.json.bak`. "Reload choices" reads GitHub and your disk again.
     - "Your GitHub": All my repos (with Include archived) or Only the ones I pick, then a
@@ -175,12 +183,27 @@ open it with `tab.new {mod: "alpmeister"}`.
   The Daypack's Claude buttons do the same. It fetches when the tab opens and on Refresh only.
   - **Herds**: the Claude Code sessions on this machine and the links between them.
     - A Herds card: each herd as a graph. Its herdsman (the session that made the most links)
-      is a box with an `accent` border, labelled "herdsman"; a 1px `border` line drops to a bar,
+      is a box with an `accent` border; a 1px `border` line drops to a bar,
       and from it a 22px stub to each member's box, side by side, 260px of room each, centered.
       A stub is solid and labelled `msg 14:27` (the latest message) or dotted (four 3px dashes)
       and labelled `worktree`. Links between members are listed below the graph as one dim line
       each. Who and when only: never message text.
-    - A Grazing card: the sessions with no link, as a wrapping grid of 272px cards in the
+    - Role marks: Alp's own 24px line icons at 14px, at the end of each box's first line, with
+      their meaning on hover: the herdsman's crook (`crook.svg`, `accent`), a cow for a member
+      session and for each grazing card, before the space's avatar (`cow.svg`), a lamb for a fork agent (`lamb.svg`), a herding dog for any other agent
+      (`dog.svg`), all in `muted` but the crook.
+    - Agents: a session that started agents (`<session>/subagents/agent-<id>.meta.json`) is the
+      herdsman of a herd with them, even with no link to another session. Its agents sit beside
+      its member sessions under the same bar, 180px of room each: a 58px box (`working` border
+      while it works) with the status mark and the agent's description, then "12m" running ("·
+      quiet" with no write for 3 minutes), or "done 5m ago". The stub is labelled with the agent's
+      type, dotted for a background agent. Tooltip: fork or type, background or foreground, model,
+      start time. A click opens the session's tab. A member session's own agents stack under its
+      box. An agent with `spawnDepth` 2 or more sits under the agent whose transcript holds its
+      `toolUseId`, a step in, as deep as they go. Agents finished more than 30 minutes ago fold
+      into a "+ N finished earlier" button under the herd. The Herds chip adds "N agents
+      working".
+    - A Grazing card: the sessions with no link and no recent agents, as a wrapping grid of 272px cards in the
       sidebar's space order, then the ones in no space. A card: a 3px stripe down the left edge
       in the space's color, the status mark and name, the space's avatar (its letter on its
       color, 15px) in the corner with the space's name on hover, the tab's name below (the
@@ -209,7 +232,12 @@ open it with `tab.new {mod: "alpmeister"}`.
   session's pid; a background session's is the Claude tab titled with its name, else the one
   picked with Link a tab (`~/.local/state/alp/herds.json`). The branch is the pane's live
   `branch`, else `git branch --show-current` in the session's folder. `herds-view.js` draws it;
-  `watchFolder(~/.claude/sessions)` reloads it.
+  `watchFolder(~/.claude/sessions)` reloads it, and so does each live session's `subagents`
+  folder, with a 3-second pause (`cx.timer.after`) after each change, as agents write often. The
+  agents are read in one `sh` call: per agent its meta file, the first `timestamp` in the first
+  lines of its transcript (the first line is a header with none), the transcript's mtime
+  (`stat -c %Y`, or `stat -f %m` on macOS), and for a nested agent the sibling transcript that
+  holds its `toolUseId` (`grep -l -F`).
 - **Watch out:** issue search cannot filter on a board field, so in-flight items come from the
   project's own `items(query:)` filter. GitHub milestones have no start date. The runtime has no
   locale data, so dates are formatted by hand. Without a `mod.json` with `"place": "none"`, Herdr
@@ -236,18 +264,13 @@ open it with `tab.new {mod: "alpmeister"}`.
 ## Daypack
 
 - **What:** what you carry through the day, in a column on the window's right edge, beside the
-  terminals as the left sidebar is. It holds today's Lineup items. A Daypack button at the right
-  end of the tab bar shows or hides it.
-- **Where:** `mods/daypack/`, placed twice by the `alp` layout:
-  - the `daypack-button` block, 40px, beside the `tabs` block in a `topbar` row, with
-    `props: { button: true }`;
-  - the `daypack` block, the root row's last child: 280px, 200 to 480px, hidden at first.
+  terminals as the left sidebar is. It holds today's trail. The Daypack button in the
+  tab bar, after Changes, shows or hides it (drawn by `alp-tabs`, above).
+- **Where:** `mods/daypack/`, placed by the `alp` layout as the `daypack` block, the root row's
+  last child: 280px, 200 to 480px, hidden at first.
 - **How it looks:**
-  - The button is the backpack icon alone (`backpack.svg`, lucide) in a 26px square, like the
-    tab bar's + button. The icon is `accent` while any item is open. The button is `selected`
-    while the sidebar shows, and runs `layout.toggle`.
   - The sidebar is `chrome`: a 42px "Daypack" header with the open count and a close button
-    (`layout.hide`), then a "LINEUP" group
+    (`layout.hide`), then a "TODAY'S TRAIL" group (empty: "The trail is clear.")
     with the items in sections by kind (Todos, PRs, Issues), each headed by its open count.
     A row holds the item's checkbox, title and number. A click on a title opens it on GitHub.
   - An issue or PR row ends with the Claude button: it opens a Claude tab running the prompt from

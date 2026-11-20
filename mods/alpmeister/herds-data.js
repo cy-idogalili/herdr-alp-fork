@@ -1,9 +1,13 @@
-// Herds: the Claude Code sessions on this machine, the Herdr tab each runs in, and the links
-// between them. A link is a SendMessage from one session to another, or a worktree one
-// session made for another. Read from Claude Code's own files, which it never writes:
+// Herds: the Claude Code sessions on this machine, the Herdr tab each runs in, the links
+// between them, and the agents each one started. A link is a SendMessage from one session to
+// another, or a worktree one session made for another. Read from Claude Code's own files, which
+// Alpmeister never writes:
 //   ~/.claude/sessions/<pid>.json        the live sessions: name, pid, folder, status
 //   ~/.claude/jobs/<id>/state.json       a background session's state
 //   ~/.claude/projects/*/<session>.jsonl a session's transcript, for the links it made
+//   ~/.claude/projects/*/<session>/subagents/agent-<id>.meta.json and .jsonl
+//                                        the agents it started (Agent tool): what each is for,
+//                                        its type, whether it finished; its own transcript
 // A background session runs in no terminal. A tab showing it carries its name as the terminal's
 // title, which links the two; else the person links them once, kept in
 // ~/.local/state/alp/herds.json.
@@ -17,6 +21,12 @@ const claudeDir = () => `${home()}/.claude`;
 export const sessionsDir = () => `${claudeDir()}/sessions`;
 
 const linksPath = () => `${stateDir()}/herds.json`;
+
+/** How long a finished agent stays in its session's row before it folds into "finished earlier". */
+export const AGENT_RECENT = 30 * 60000;
+
+/** An unfinished agent whose transcript has not changed for this long shows as idle, not working. */
+const AGENT_QUIET = 3 * 60000;
 
 /** Statuses as the agents list words them: working, blocked, done, idle. */
 const REGISTRY_STATUS = { busy: "working", waiting: "blocked", idle: "idle", shell: "idle" };
@@ -142,6 +152,108 @@ done`;
   return made;
 }
 
+/**
+ * The agents each session started, from the files Claude Code keeps beside its transcript: one
+ * `agent-<id>.meta.json` (description, type, fork, foreground or background, model, finished,
+ * `spawnDepth`, and `toolUseId`, the Agent call that started it) and one `agent-<id>.jsonl` (its
+ * own transcript: the first timestamp is its start, the file's last change its latest step). An
+ * agent started by another agent (`spawnDepth` 2 or more) gets `parent`: the agent whose
+ * transcript holds that Agent call. One shell call reads every session's.
+ * @param {object[]} sessions The live sessions, from the registry.
+ * @returns {Promise<{ agents: Map<string, object[]>, folders: string[] }>} Each session's agents
+ *   by session id, oldest first, and the folders they live in, for watching.
+ */
+async function agentsOf(sessions) {
+  const script = `cd "$1" || exit 0; shift
+for id in "$@"; do
+  for m in projects/*/"$id"/subagents/agent-*.meta.json; do
+    [ -f "$m" ] || continue
+    j="\${m%.meta.json}.jsonl"
+    at=$(stat -c %Y "$j" 2>/dev/null || stat -f %m "$j" 2>/dev/null || echo 0)
+    start=$(head -n 5 "$j" 2>/dev/null | grep -o '"timestamp":"[^"]*"' | head -n 1 | cut -d'"' -f4)
+    meta=$(tr -d '\n' < "$m")
+    parent=""
+    case "$meta" in
+      *'"spawnDepth":'[2-9]*)
+        call=$(printf '%s' "$meta" | grep -o '"toolUseId":"[^"]*"' | cut -d'"' -f4)
+        for f in $(grep -l -F "$call" "\${m%/*}"/agent-*.jsonl 2>/dev/null); do
+          [ "$f" = "$j" ] || { parent=$(basename "$f" .jsonl); break; }
+        done ;;
+    esac
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "\${m%/*}" "$(basename "$m" .meta.json)" "$at" "$start" "$parent" "$meta"
+  done
+done`;
+  const ids = sessions.map((session) => session.sessionId);
+  const result = await exec("sh", ["-c", script, "sh", claudeDir(), ...ids], { timeout: 30000 });
+  const agents = new Map();
+  const folders = new Set();
+  const now = Date.now();
+  for (const line of result.stdout.split("\n")) {
+    const [sessionId, folder, name, at, start, parent, metaText] = line.split("\t");
+    if (!metaText) continue;
+    let meta;
+    try {
+      meta = JSON.parse(metaText);
+    } catch {
+      continue;
+    }
+    const lastAt = Number(at) * 1000 || null;
+    const finished = Boolean(meta.finished);
+    folders.add(`${claudeDir()}/${folder}`);
+    if (!agents.has(sessionId)) agents.set(sessionId, []);
+    agents.get(sessionId).push({
+      id: name.replace(/^agent-/, ""),
+      description: meta.description || meta.agentType || "Agent",
+      type: meta.agentType ?? "agent",
+      fork: Boolean(meta.isFork),
+      background: meta.requestShape === "background",
+      model: meta.model === "inherit" ? null : (meta.model ?? null),
+      finished,
+      depth: meta.spawnDepth ?? 1,
+      parent: parent ? parent.replace(/^agent-/, "") : null,
+      startedAt: Date.parse(start) || null,
+      lastAt,
+      status: finished ? "done" : lastAt && now - lastAt < AGENT_QUIET ? "working" : "idle",
+    });
+  }
+  for (const list of agents.values()) list.sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
+  return { agents, folders: [...folders] };
+}
+
+/**
+ * The agents another agent started, oldest first.
+ * @param {object} session A session from loadHerds().
+ * @param {object} agent One of its agents.
+ * @returns {object[]}
+ */
+export const agentChildren = (session, agent) =>
+  (session.agents ?? []).filter((candidate) => candidate.parent === agent.id);
+
+/** Whether an agent, or any agent under it, still runs or finished in the last AGENT_RECENT. */
+function isRecent(session, agent, now) {
+  if (!agent.finished || (agent.lastAt && now - agent.lastAt < AGENT_RECENT)) return true;
+  return agentChildren(session, agent).some((child) => isRecent(session, child, now));
+}
+
+/**
+ * The agents the session itself started, split for drawing: the ones still running or finished
+ * in the last AGENT_RECENT (counting the agents they started), and the ones that finished
+ * before. Agents started by agents are drawn under their parent, so they are not listed here.
+ * @param {object} session A session from loadHerds().
+ * @param {number} [now] The time to measure from.
+ * @returns {{ recent: object[], earlier: object[] }}
+ */
+export function agentsByAge(session, now = Date.now()) {
+  const ids = new Set((session.agents ?? []).map((agent) => agent.id));
+  const recent = [];
+  const earlier = [];
+  for (const agent of session.agents ?? []) {
+    if (agent.parent && ids.has(agent.parent)) continue;
+    (isRecent(session, agent, now) ? recent : earlier).push(agent);
+  }
+  return { recent, earlier };
+}
+
 /** The tabs linked to background sessions by hand: `{ sessionId: terminal address }`. */
 export async function loadTabLinks() {
   return (await readJson(linksPath()))?.links ?? {};
@@ -169,11 +281,15 @@ export async function saveTabLink(sessionId, address) {
  *   `terminal` is the Herdr terminal it runs in or is shown in; `shownIn` says that terminal
  *   shows this background session (by its title, or `linked` by a person); `viewer` says a
  *   session's own terminal shows a background session instead.
+ *   `agents`: the agents it started, oldest first: `{ id, description, type, fork, background,
+ *   model, finished, startedAt, lastAt, status }`.
  * - `links`: `{ from, to, kind: "message" | "worktree", at }` between session ids, the latest
  *   of each kind per pair.
+ * - `agentFolders`: the folders holding the sessions' agents, watched to redraw as they work.
  */
 export async function loadHerds() {
   const [sessions, byPid, tabLinks] = await Promise.all([liveSessions(), terminalsByPid(), loadTabLinks()]);
+  const started = await agentsOf(sessions);
   const live = agents();
   const addresses = new Set(live.map((agent) => agent.address));
   const shown = await Promise.all(
@@ -201,6 +317,7 @@ export async function loadHerds() {
         shownIn: Boolean(linked || titled),
         viewer: Boolean(session.parkedJobId),
         status: state ?? REGISTRY_STATUS[session.status] ?? "idle",
+        agents: started.agents.get(session.sessionId) ?? [],
       };
     }),
   );
@@ -224,14 +341,15 @@ export async function loadHerds() {
       latest.set(key, { from: made.from, to, kind: made.kind, at: made.at });
     }
   }
-  return { sessions: shown, links: [...latest.values()], loadedAt: Date.now() };
+  return { sessions: shown, links: [...latest.values()], agentFolders: started.folders, loadedAt: Date.now() };
 }
 
 /**
  * The herds: sessions joined by links, each led by its herdsman (the one that made the most
- * links), its others in name order, and the links among them. `grazing` are the sessions with no
- * link. A terminal showing a background session is that session's, so the session of its own
- * is left out.
+ * links), its others in name order, and the links among them. A session with no link that has
+ * agents running or just finished leads a herd of its own, its agents its herd. `grazing` are
+ * the sessions with neither. A terminal showing a background session is that session's, so the
+ * session of its own is left out.
  */
 export function herdsOf({ sessions, links }) {
   const showing = new Set(sessions.filter((session) => session.shownIn).map((session) => session.terminal));
@@ -248,7 +366,14 @@ export function herdsOf({ sessions, links }) {
   const herds = [];
   const placed = new Set();
   for (const session of visible) {
-    if (placed.has(session.id) || !neighbors.get(session.id).size) continue;
+    if (placed.has(session.id)) continue;
+    if (!neighbors.get(session.id).size) {
+      if (agentsByAge(session).recent.length) {
+        placed.add(session.id);
+        herds.push({ herdsman: session, members: [], links: [] });
+      }
+      continue;
+    }
     const members = [];
     const queue = [session.id];
     placed.add(session.id);

@@ -1,15 +1,30 @@
-// Alpmeister: the team lead's start-of-day view, in four tabs.
+// Alpmeister: the team lead's start-of-day view, in three tabs, and its settings in a tab of
+// their own (the gear beside Refresh opens it).
 //   Dashboard  one workspace at a time (tiles for open bugs by priority, triage bugs, customer
 //              issues and the nightly run, the spotlight, the next milestone and the team in
 //              flight), or All repos: your GitHub as a whole.
 //   Herds      your Claude Code sessions and how they are linked.
 //   Daypack    today's focus, then review requests, your PRs and your issues across your repos.
-//   Settings   everything in ~/.config/alp/alpmeister.json, as a form.
+//   Settings   everything in ~/.config/alp/alpmeister.json, as a form: a copy opened with
+//              props.tab "settings" shows only this.
 // It refreshes when it opens and from its button only.
 
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { checking, panes, props, readTextFile, run, setShared, shared, spaces, theme, watchFolder, writeTextFile, exec } from "herdr";
+import {
+  checking,
+  exec,
+  panes,
+  props,
+  readTextFile,
+  run,
+  setShared,
+  shared,
+  spaces,
+  theme,
+  watchFolder,
+  writeTextFile,
+} from "herdr";
 import { AccountTiles, OpenPrs, Repos } from "./account.js";
 import { folderOf, loadConfig, normalizeConfig, stateDir } from "./config.js";
 import { MODEL_VERSION, loadAll, loadPickStates } from "./data.js";
@@ -25,9 +40,14 @@ import { SettingsForm } from "./settings-view.js";
 import { Card, ICONS, IconButton, Note, TextButton, ago, fillPrompt, shortRepo } from "./ui.js";
 
 const STALE_AFTER = 2 * 3600000;
+/** The pause after an agents folder changes before it is watched again: agents write often. */
+const AGENT_WATCH_PAUSE = 3000;
 const WIDE = 1000;
 const TABS = { dashboard: "dashboard", today: "today", herds: "herds", settings: "settings" };
 const TAB_KEY = "alpmeister.tab";
+const SETTINGS_TAB_NAME = "Alpmeister settings";
+/** Set after the settings file is saved, so every other copy fetches with the new settings. */
+const SETTINGS_STAMP_KEY = "alp.settingsStamp";
 const WORKSPACE_KEY = "alpmeister.workspace";
 /** The Dashboard switch's value for your GitHub as a whole. */
 const ALL_REPOS = "";
@@ -35,11 +55,11 @@ const FOCUS_STAMP_KEY = "alp.focusStamp";
 
 const cachePath = () => `${stateDir()}/alpmeister-cache.json`;
 
-/** The tab this copy showed last, or the dashboard. */
+/** The tab this copy showed last, or the dashboard. Settings opens in its own copy only. */
 function rememberedTab() {
   try {
     const tab = localStorage.getItem(TAB_KEY);
-    return Object.values(TABS).includes(tab) ? tab : TABS.dashboard;
+    return Object.values(TABS).includes(tab) && tab !== TABS.settings ? tab : TABS.dashboard;
   } catch (error) {
     console.log(`alpmeister: no remembered tab: ${error}`);
     return TABS.dashboard;
@@ -80,14 +100,25 @@ export default class Alpmeister extends View {
     this.herdsLoading = false;
     this.herdsAgain = false;
     this.herdsWatching = false;
+    this.agentWatches = new Map();
+    this.expandedAgents = new Set();
     this.herdsFailure = null;
     this.picking = null;
     this.focus = new FocusStore();
     this.focusStamp = shared(FOCUS_STAMP_KEY) ?? null;
     this.input = InputState.new({ placeholder: "Add a todo and press Enter" });
     this.input.on("submit", (_event, cx) => this.addTodo(cx));
-    this.settings = new SettingsForm((cx) => this.refresh(cx));
+    this.settings = new SettingsForm((cx) => this.announceSettings(cx));
+    this.settingsStamp = shared(SETTINGS_STAMP_KEY) ?? null;
     if (checking()) return;
+    if (this.tab === TABS.settings) {
+      // The settings copy edits the file; it fetches nothing from GitHub itself.
+      cx.spawn(async (cx) => {
+        await this.loadSettings();
+        cx.notify();
+      });
+      return;
+    }
     cx.spawn(async (cx) => {
       await this.loadSettings();
       await this.focus.load();
@@ -115,6 +146,7 @@ export default class Alpmeister extends View {
         try {
           this.herds = await loadHerds();
           this.herdsFailure = null;
+          this.watchAgents(cx);
         } catch (error) {
           this.herdsFailure = String(error?.message ?? error);
           console.log(`alpmeister: herds failed: ${this.herdsFailure}`);
@@ -139,6 +171,36 @@ export default class Alpmeister extends View {
         this.reloadHerds(cx);
       }
     });
+  }
+
+  /**
+   * Reads the herds again whenever an agent folder changes: an agent starting, stepping or
+   * finishing. One watch per folder, while its session is live; after each change it waits
+   * AGENT_WATCH_PAUSE, so a busy agent redraws the tab every few seconds, not on every write.
+   */
+  watchAgents(cx) {
+    for (const folder of this.herds?.agentFolders ?? []) {
+      if (this.agentWatches.has(folder)) continue;
+      this.agentWatches.set(folder, null);
+      cx.spawn(async (cx) => {
+        while (this.herds?.agentFolders?.includes(folder)) {
+          await watchFolder(folder);
+          this.reloadHerds(cx);
+          await new Promise((resolve) => {
+            // Kept on the view: a dropped task would not fire.
+            this.agentWatches.set(folder, cx.timer.after(AGENT_WATCH_PAUSE, () => resolve()));
+          });
+        }
+        this.agentWatches.delete(folder);
+      });
+    }
+  }
+
+  /** Shows or folds the agents a session finished a while ago. */
+  toggleAgents(sessionId, cx) {
+    if (this.expandedAgents.has(sessionId)) this.expandedAgents.delete(sessionId);
+    else this.expandedAgents.add(sessionId);
+    cx.notify();
   }
 
   /** Links a background session to the tab that shows it (or unlinks it), then redraws. */
@@ -166,6 +228,31 @@ export default class Alpmeister extends View {
     this.configText = text;
     if (config && !this.settings.dirty()) this.settings.load(config, text);
     return config ?? null;
+  }
+
+  /** Tells the other copies the settings file changed, after a save here. */
+  announceSettings(cx) {
+    this.settingsStamp = Date.now();
+    setShared(SETTINGS_STAMP_KEY, this.settingsStamp);
+    if (this.tab !== TABS.settings) this.refresh(cx);
+  }
+
+  /** Fetches again with the new settings when another copy saved them. */
+  syncSettings(cx) {
+    const stamp = shared(SETTINGS_STAMP_KEY) ?? null;
+    if (stamp === this.settingsStamp) return;
+    this.settingsStamp = stamp;
+    if (this.tab !== TABS.settings) this.refresh(cx);
+  }
+
+  /**
+   * Goes to the space's settings tab, or opens one: a copy of Alpmeister showing only Settings.
+   */
+  openSettings() {
+    const space = spaces().find((candidate) => candidate.active);
+    const open = space?.tabs?.find((tab) => tab.name === SETTINGS_TAB_NAME);
+    if (open) run("tab.select", { id: open.id });
+    else run("tab.new", { mod: "alpmeister", name: SETTINGS_TAB_NAME, props: { tab: TABS.settings } });
   }
 
   /** Draws the last result at once, before the first refresh returns. */
@@ -313,7 +400,7 @@ export default class Alpmeister extends View {
           this.persist(cx);
         },
         {
-          tooltip: pinned ? "Unpin from the Lineup" : "Pin to the Lineup",
+          tooltip: pinned ? "Take off today's trail" : "Add to today's trail",
           color: pinned ? theme().accent : undefined,
         },
       );
@@ -414,22 +501,21 @@ export default class Alpmeister extends View {
       .border_color(t.border)
       .child(pill(TABS.dashboard, "Dashboard"))
       .child(pill(TABS.herds, "Herds"))
-      .child(pill(TABS.today, open ? `Daypack · ${open}` : "Daypack"))
-      .child(pill(TABS.settings, this.settings.dirty() ? "Settings ·" : "Settings"));
+      .child(pill(TABS.today, open ? `Daypack · ${open}` : "Daypack"));
   }
 
   /**
-   * The header: tabs, title, when the shown tab's data was read, and Refresh. On Herds, Refresh
-   * reads the sessions again; elsewhere it fetches from GitHub.
+   * The header: tabs, title, when the shown tab's data was read, Refresh, and the gear that opens
+   * Settings. On Herds, Refresh reads the sessions again; elsewhere it fetches from GitHub. The
+   * settings copy shows its title alone.
    */
   header(t) {
     if (this.tab === TABS.settings) {
       return h_flex()
         .items_center()
         .gap(10)
-        .child(this.tabs(t))
-        .child(div().w(8))
-        .child(div().text_size(18).font_semibold().text_color(t.foreground).child("Alpmeister"));
+        .child(svg(ICONS.settings).size(16).text_color(t.muted))
+        .child(div().text_size(18).font_semibold().text_color(t.foreground).child("Alpmeister settings"));
     }
     const herds = this.tab === TABS.herds;
     const fetchedAt = herds ? this.herds?.loadedAt : this.model?.fetchedAt;
@@ -454,7 +540,8 @@ export default class Alpmeister extends View {
         TextButton("refresh", busy ? "Refreshing…" : "Refresh", (cx) =>
           herds ? this.reloadHerds(cx) : this.refresh(cx),
         ),
-      );
+      )
+      .child(IconButton("open-settings", ICONS.settings, () => this.openSettings(), { tooltip: "Settings" }));
   }
 
   /** Shows every row of a list section, or only its first rows again. */
@@ -635,6 +722,7 @@ export default class Alpmeister extends View {
 
   render(cx) {
     this.syncFocus(cx);
+    this.syncSettings(cx);
     const t = theme();
     const wide = this.width >= WIDE;
     const config = this.config;
@@ -663,12 +751,19 @@ export default class Alpmeister extends View {
             cx.notify();
           },
           link: (sessionId, address, cx) => this.linkTab(sessionId, address, cx),
+          expandedAgents: this.expandedAgents,
+          toggleAgents: (sessionId, cx) => this.toggleAgents(sessionId, cx),
         }),
       );
     } else {
       if (this.configError) {
         content = content.child(
-          Card("settings", "Settings", [TextButton("open-settings", "Open Settings", (cx) => this.selectTab(TABS.settings, cx))], Note(this.configError, t.blocked)),
+          Card(
+            "settings",
+            "Settings",
+            [TextButton("open-settings-card", "Open Settings", () => this.openSettings())],
+            Note(this.configError, t.blocked),
+          ),
         );
       }
       if (this.failure) content = content.child(Note(`Refresh failed: ${this.failure}`, t.blocked));
