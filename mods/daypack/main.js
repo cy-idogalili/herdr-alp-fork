@@ -1,18 +1,15 @@
-// Daypack: what you carry through the day, in a column on the window's right edge beside the
-// terminals. It holds today's trail, each issue and PR with the Claude button Alpmeister
-// shows. It reads the focus list Alpmeister keeps, and reloads when Alpmeister changes it.
-// The button that shows or hides it is in Alp's tab bar (`alp-tabs`).
+// Daypack: what you carry through the day, in Basecamp's Daypack tab on the window's right edge.
+// It holds today's trail, each issue and PR with the Claude button Alpmeister shows. It reads the
+// focus list Alpmeister keeps, and reloads when Alpmeister changes it. Basecamp's header (the
+// `basecamp` mod) shows how many items are open.
 
-import { View, div, image, svg } from "gpui-kit";
+import { View, div, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { exec, home, panes, readTextFile, run, setShared, shared, spaces, theme } from "herdr";
 import { FocusFile } from "./focus-file.js";
 
-const SIDEBAR_ID = "daypack";
 const STAMP_KEY = "alp.focusStamp";
-const DAYPACK_ICON = "mods/daypack/backpack.svg";
 const CLAUDE_ICON = "icons/claude.svg";
-const CLOSE_ICON = "mods/workspace-chrome/x.svg";
 const SECTIONS = [
   { kind: "todo", title: "Todos" },
   { kind: "pr", title: "PRs" },
@@ -204,43 +201,11 @@ export default class Daypack extends View {
     const t = theme();
     if ((shared(STAMP_KEY) ?? null) !== this.stamp) this.reload(cx);
     const items = this.store.items();
-    const count = items.filter((item) => !item.done).length;
     return v_flex()
       .id("daypack")
       .size_full()
       .bg(t.chrome)
       .overflow_y_scrollbar()
-      .child(
-        h_flex()
-          .h(42)
-          .flex_none()
-          .px(12)
-          .gap(8)
-          .items_center()
-          .border_b(1)
-          .border_color(t.border)
-          .child(svg(DAYPACK_ICON).size(13).flex_none().text_color(t.muted))
-          .child(div().flex_1().text_size(12.5).font_semibold().text_color(t.foreground).child("Daypack"))
-          .child(div().text_size(11).text_color(t.dim).child(`${count} open`))
-          .child(
-            h_flex()
-              .id("daypack-close")
-              .flex_none()
-              .size(22)
-              .items_center()
-              .justify_center()
-              .rounded(5)
-              .cursor_pointer()
-              .text_color(t.dim)
-              .hover((style) => style.bg(t.hover).text_color(t.foreground))
-              .tooltip("Hide the Daypack")
-              .on_click((_event, cx) => {
-                cx.stop_propagation();
-                run("layout.hide", { id: SIDEBAR_ID });
-              })
-              .child(svg(CLOSE_ICON).size(13)),
-          ),
-      )
       .child(
         v_flex()
           .py(6)

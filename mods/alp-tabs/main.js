@@ -1,15 +1,15 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, home, readTextFile } from "herdr";
+import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, home, readTextFile, terminals } from "herdr";
 
 // Alp's tab bar: Herdr's `tabs` (0.1.16) with two buttons added. Beside +, the sheep opens
-// Alpmeister: it goes to the space's Alpmeister tab, or opens one. After Changes, the Daypack
-// button shows or hides the `daypack` sidebar, when the layout has one.
+// Alpmeister: it goes to the space's Alpmeister tab, or opens one. After Changes, the Basecamp
+// button shows or hides the `basecamp` column (the Daypack and Run tabs), when the layout has one.
 
 const ALPMEISTER = "alpmeister";
 const SHEEP_ICON = "mods/alp-tabs/sheep.svg";
-const DAYPACK_ID = "daypack";
-const DAYPACK_ICON = "mods/daypack/backpack.svg";
+const BASECAMP_ID = "basecamp";
+const BASECAMP_ICON = "mods/basecamp/tent.svg";
 const FOCUS_STAMP = "alp.focusStamp";
 
 /**
@@ -198,7 +198,7 @@ export default class Tabs extends View {
       .child(this.sheepButton(t, space, button))
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
-      .when(Boolean(find(root, DAYPACK_ID)), el => el.child(this.daypackButton(t, find(root, DAYPACK_ID), stop)))
+      .when(Boolean(find(root, BASECAMP_ID)), el => el.child(this.basecampButton(t, find(root, BASECAMP_ID), stop)))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/alp-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(button("maximize", w.platform === "windows" ? svg(`mods/alp-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
         .child(button("close-window", w.platform === "windows" ? svg("mods/alp-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
@@ -223,22 +223,24 @@ export default class Tabs extends View {
   }
 
   /**
-   * The Daypack button after Changes: shows or hides the `daypack` sidebar. The icon takes the
-   * accent color while any trail item is open.
+   * The Basecamp button after Changes: shows or hides the `basecamp` column. The icon takes the
+   * accent color while any trail item is open or any run is still running.
    * @param {object} t The theme.
-   * @param {object} sidebar The layout's `daypack` node.
+   * @param {object} column The layout's `basecamp` node.
    * @param {Function} stop Keeps the press from dragging the window.
    * @returns {object}
    */
-  daypackButton(t, sidebar, stop) {
-    const open = !sidebar.hidden;
-    const color = this.trailOpen > 0 ? t.accent : null;
-    return h_flex().id("daypack-button").size(26).flex_none().items_center().justify_center().rounded(6)
+  basecampButton(t, column, stop) {
+    const open = !column.hidden;
+    const running = terminals().filter((terminal) => terminal.state === "live" && terminal.labels?.["alp.run"] && !terminal.labels["alp.run.exit"]).length;
+    const color = this.trailOpen > 0 || running > 0 ? t.accent : null;
+    const counts = [this.trailOpen ? `${this.trailOpen} open` : "", running ? `${running} running` : ""].filter(Boolean).join(" · ");
+    return h_flex().id("basecamp-button").size(26).flex_none().items_center().justify_center().rounded(6)
       .bg(open ? t.selected : t.chrome).text_color(color ?? (open ? t.foreground : t.muted))
       .hover(s => s.bg(t.hover).text_color(color ?? t.foreground))
       .on_mouse_down("left", stop)
-      .on_click(() => run("layout.toggle", { id: DAYPACK_ID }))
-      .tooltip(`${open ? "Hide" : "Show"} the Daypack${this.trailOpen ? ` · ${this.trailOpen} open` : ""}`)
-      .child(svg(DAYPACK_ICON).size(14).flex_none());
+      .on_click(() => run("layout.toggle", { id: BASECAMP_ID }))
+      .tooltip(`${open ? "Hide" : "Show"} Basecamp${counts ? ` · ${counts}` : ""}`)
+      .child(svg(BASECAMP_ICON).size(14).flex_none());
   }
 }
