@@ -111,6 +111,10 @@ export default class Alpmeister extends View {
     this.focusStamp = shared(FOCUS_STAMP_KEY) ?? null;
     this.input = InputState.new({ placeholder: "Add a todo and press Enter" });
     this.input.on("submit", (_event, cx) => this.addTodo(cx));
+    this.editingTodo = null;
+    this.todoEdit = InputState.new({ placeholder: "The todo" });
+    this.todoEdit.on("submit", (_event, cx) => this.saveTodoEdit(cx));
+    this.todoEdit.on("blur", (_event, cx) => this.saveTodoEdit(cx));
     this.settings = new SettingsForm((cx) => this.announceSettings(cx));
     this.settingsStamp = shared(SETTINGS_STAMP_KEY) ?? null;
     if (checking()) return;
@@ -363,6 +367,38 @@ export default class Alpmeister extends View {
   }
 
   /** Saves the focus list, then redraws. */
+  /** Opens a todo's text for editing, all of it selected. */
+  startTodoEdit(item, cx) {
+    this.editingTodo = item.id;
+    this.todoEdit.set_value(item.text ?? "");
+    this.todoEdit.set_selected_range({ start: 0, end: (item.text ?? "").length });
+    this.todoEdit.focus();
+    // The field mounts on the next frame; focus it again once it is there.
+    cx.timer.after(100, () => this.todoEdit.focus());
+    cx.notify();
+  }
+
+  /** Saves the edited todo's text. An empty text keeps the old one. */
+  saveTodoEdit(cx) {
+    const id = this.editingTodo;
+    if (!id) return;
+    this.editingTodo = null;
+    const text = this.todoEdit.value().trim();
+    const item = this.focus.items().find((candidate) => candidate.id === id);
+    if (!item || !text || text === item.text) {
+      cx.notify();
+      return;
+    }
+    this.focus.update(id, { text });
+    this.persist(cx);
+  }
+
+  /** Closes the todo editor without saving. */
+  cancelTodoEdit(cx) {
+    this.editingTodo = null;
+    cx.notify();
+  }
+
   persist(cx) {
     cx.spawn(async (cx) => {
       await this.focus.save();
@@ -678,6 +714,12 @@ export default class Alpmeister extends View {
       },
       launch: (item) => this.launch(item),
       command: (kind) => this.prompt(kind),
+      edit: {
+        id: this.editingTodo,
+        input: this.todoEdit,
+        start: (item, cx) => this.startTodoEdit(item, cx),
+        cancel: (cx) => this.cancelTodoEdit(cx),
+      },
     });
     const account = model.account;
     if (!account) {

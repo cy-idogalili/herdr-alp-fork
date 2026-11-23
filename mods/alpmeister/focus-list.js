@@ -72,14 +72,44 @@ function StandingChip(t, item) {
 }
 
 /**
+ * A todo's text being edited: Enter or a click away saves, Esc cancels.
+ * @param {object} t The theme.
+ * @param {object} edit The edit actions: `{ input, cancel(cx) }`.
+ */
+function TodoEditor(t, edit) {
+  return div()
+    .flex_1()
+    .min_w(0)
+    .on_key_down((event, cx) => {
+      if (event.key !== "escape") return;
+      cx.stop_propagation();
+      edit.cancel(cx);
+    })
+    .child(
+      Input.new(edit.input)
+        .h(24)
+        .px(6)
+        .rounded(6)
+        .border_1()
+        .border_color(t.accent)
+        .bg(t.background)
+        .text_size(12)
+        .text_color(t.foreground),
+    );
+}
+
+/**
  * One focus item: checkbox, text, an issue's status or a PR's review decision, days since it was
- * added, a Claude button for a GitHub item, and a remove button. A GitHub item opens on click.
+ * added, a Claude button for a GitHub item, an edit button for a todo, and a remove button. A
+ * GitHub item opens on click. A todo's text opens for editing on a double-click or the edit button.
  */
 function FocusItem(item, actions) {
   const t = theme();
   const label = item.kind === "todo" ? item.text : item.title;
   const days = daysSinceAdded(item);
   const command = item.kind === "todo" ? "" : actions.command(item.kind);
+  const isTodo = item.kind === "todo";
+  const editing = isTodo && actions.edit.id === item.id;
   return h_flex()
     .id(`fc-${item.id}`)
     .w_full()
@@ -101,15 +131,24 @@ function FocusItem(item, actions) {
         }),
       ),
     )
-    .child(
-      div()
-        .flex_1()
-        .min_w(0)
-        .truncate()
-        .text_size(12)
-        .text_color(item.done ? t.dim : t.foreground)
-        .when(item.done, (el) => el.line_through())
-        .child(label),
+    .when(editing, (el) => el.child(TodoEditor(t, actions.edit)))
+    .when(!editing, (el) =>
+      el.child(
+        div()
+          .id(`fc-text-${item.id}`)
+          .flex_1()
+          .min_w(0)
+          .truncate()
+          .text_size(12)
+          .text_color(item.done ? t.dim : t.foreground)
+          .when(item.done, (el) => el.line_through())
+          .when(isTodo, (el) =>
+            el.on_mouse_down("left", (event, cx) => {
+              if (event.click_count === 2) actions.edit.start(item, cx);
+            }),
+          )
+          .child(label),
+      ),
     )
     .children([StandingChip(t, item)].filter(Boolean))
     .when(days > 0, (el) =>
@@ -129,12 +168,16 @@ function FocusItem(item, actions) {
         }),
       ),
     )
+    .when(isTodo && !editing, (el) =>
+      el.child(IconButton(`fc-edit-${item.id}`, ICONS.edit, (cx) => actions.edit.start(item, cx), { tooltip: "Edit" })),
+    )
     .child(IconButton(`fc-remove-${item.id}`, ICONS.close, (cx) => actions.remove(item.id, cx), { tooltip: "Remove" }));
 }
 
 /**
- * The focus card. `actions`: `{ toggle(id, cx), remove(id, cx), launch(item), command(kind) }`,
- * where `command` is the configured Claude command for that kind, or "" when none is set.
+ * The focus card. `actions`: `{ toggle(id, cx), remove(id, cx), launch(item), command(kind), edit }`,
+ * where `command` is the configured Claude command for that kind, or "" when none is set, and
+ * `edit` is `{ id, input, start(item, cx), cancel(cx) }` for the todo being edited.
  * `input` is the todo field's InputState.
  */
 export function FocusList(items, input, actions) {

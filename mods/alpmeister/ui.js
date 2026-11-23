@@ -218,6 +218,7 @@ export const ICONS = {
   lineStep: "mods/alpmeister/line-step.svg",
   pin: "mods/workspace-chrome/pin.svg",
   close: "mods/workspace-chrome/x.svg",
+  edit: "mods/alpmeister/pencil.svg",
   claude: "icons/claude.svg",
   settings: "mods/workspace-chrome/settings.svg",
 };
