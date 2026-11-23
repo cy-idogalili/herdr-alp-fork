@@ -164,7 +164,7 @@ export default class Daypack extends View {
 
   /** One item: its checkbox, its title, its repository and number, and its Claude button. A click on the title opens it on GitHub. */
   row(t, item) {
-    const label = item.kind === "todo" ? item.text : item.title;
+    const text = item.kind === "todo" ? item.text : item.title;
     return h_flex()
       .id(`ls-${item.id}`)
       .w_full()
@@ -194,7 +194,7 @@ export default class Daypack extends View {
           .truncate()
           .text_color(item.done ? t.dim : t.foreground)
           .when(Boolean(item.url), (el) => el.cursor_pointer().on_click(() => openUrl(item.url)))
-          .child(label ?? ""),
+          .child(text ?? ""),
       )
       .when(item.number != null, (el) => el.child(div().flex_none().text_color(t.dim).child(label(item))))
       .children([this.claudeButton(t, item)].filter(Boolean));
