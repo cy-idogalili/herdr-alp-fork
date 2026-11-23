@@ -21,8 +21,11 @@ What's inside:
 | `mods/pane-agent/` | pane header: icon, name, folder, model/effort/context chips, worktree, branch, status, split/zoom/close |
 | `mods/alp-agents/` | sidebar agents list: grouped or priority views, sub-agents under their parent, each Space shown by its avatar |
 | `mods/alpmeister/` | a team lead's start-of-day tab: a Dashboard of all your repos or one workspace (bugs by priority, triage, customer issues, nightly, priorities, milestone, team in flight), Herds, Daypack (focus, reviews, your PRs, your issues) and Settings |
-| `mods/daypack/` | Daypack: a right sidebar beside the terminals with today's trail, shown or hidden from the Daypack button in the tab bar |
-| `mods/alp-tabs/` | the tab bar: Herdr's tabs with a sheep beside + that opens Alpmeister, and the Daypack button after Changes |
+| `mods/basecamp/` | Basecamp: the right column beside the terminals, with a Daypack tab and a Run tab, shown or hidden from the tent button in the tab bar |
+| `mods/daypack/` | Daypack: Basecamp's tab with today's trail |
+| `mods/alp-runs/` | Runs: Basecamp's Run tab (the workspace's VS Code launch configs and tasks, and your saved commands, each with a play button) and the bottom panel with each run's output and sessions |
+| `mods/alp-status/` | the status bar: Herdr's, with a Runs button that shows or hides the bottom panel |
+| `mods/alp-tabs/` | the tab bar: Herdr's tabs with a sheep beside + that opens Alpmeister, and the Basecamp button after Changes |
 | `plugins/alp/` | Claude Code plugin that writes the status files the mods read |
 | `RECIPE.md` | the brief to rebuild it from scratch (herdr.dev format) |
 | `icon.png` | Alp's logo |
@@ -156,6 +159,55 @@ Nightly checks (one row per job or step) are edited in the file: see
 `mods/alpmeister/alpmeister.example.json` for every key. A file in the earlier one-repo shape
 (top-level `repo` and `project`) still works: it reads as one workspace, and Save writes it in
 the new shape.
+
+## Runs
+
+Basecamp's **Run** tab lists what the focused workspace can run: its `.vscode/launch.json`
+configurations and compounds, its `.vscode/tasks.json` tasks, and your saved commands. The
+workspace is the focused terminal's git checkout, or the repo the space's terminals are in.
+
+- **Run:** the play button starts the entry. Its `preLaunchTask` and `dependsOn` tasks start
+  first, and a compound starts each of its configurations. A `${input:...}` asks first, with the
+  last answer filled in.
+- **Watch:** the bottom panel opens with the run's live output. Its bar shows the run's state,
+  stop (Ctrl-C, then terminate on a second press) and restart. The sessions list beside it holds
+  every run: running, exited 0 or failed. The output stays after the command ends.
+- **Show or hide:** the terminal button in the status bar, before the commands hint.
+- **Not runnable here:** configs that need VS Code's debugger or an open editor (`${file}`,
+  browser and attach configs) fold away under "need VS Code", with the reason on each.
+
+### Saved commands
+
+The **+** beside Saved, or "Save to my commands…" on a task's right-click, writes
+`~/.config/alp/commands.json`. Right-click a saved command to edit or delete it.
+
+```json
+{
+  "commands": [
+    { "name": "Kill port", "command": "lsof -t -i:${input:port} | xargs kill",
+      "inputs": [{ "id": "port", "type": "promptString", "description": "Port" }] },
+    { "name": "Reset local DB", "command": "npm run dev:containers -- reset",
+      "workspace": "~/Projects/my-repo" }
+  ]
+}
+```
+
+A command with `workspace` shows only in that repo and its worktrees. `cwd` defaults to the
+workspace root. `inputs` follow the VS Code format.
+
+### For agents
+
+Each run is a herdr-core terminal with a name and labels, so an agent can read a running server
+instead of starting another:
+
+```sh
+hc ls --label alp.workspace="$(git rev-parse --show-toplevel)" --json
+hc read <name> --lines 200
+```
+
+The labels are `alp.run` (the entry's name), `alp.run.kind` (launch, task or saved),
+`alp.workspace` (the repo root) and, once the command ends, `alp.run.exit`. The `alp` plugin's
+`alp-runs` skill tells Claude this.
 
 ## Status files
 

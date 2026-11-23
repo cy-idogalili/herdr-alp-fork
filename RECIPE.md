@@ -14,9 +14,11 @@ Left to right:
   - **Spaces** and **Agents**: the shipped lists, sharing the rest equally (each at least 90px).
   - **Footer**, 69px: `workspace-chrome` in footer mode (Settings, Add machine).
 - **Work area**:
-  - **Tabs**, 42px: Alp's tab bar (`alp-tabs`, the shipped `tabs` with two buttons added). Drags the window. Left to right: the tabs, +, the sheep (Alpmeister), Files, Changes, the Daypack button, then the window buttons where the platform draws none.
+  - **Tabs**, 42px: Alp's tab bar (`alp-tabs`, the shipped `tabs` with two buttons added). Drags the window. Left to right: the tabs, +, the sheep (Alpmeister), Files, Changes, the Basecamp button, then the window buttons where the platform draws none.
   - **Body**, 8px padding and gap: the active tab's panes, each a card with `background` fill, 1px `border` outline (1px `accent` when focused), 10px radius, 8px between cards, framed even when alone. To the right a hidden 368px panel (280–900) stacking the shipped `files` and `changes` panels, opened from the tab bar.
-  - **Status bar**, 28px: the shipped `workspace-status`.
+  - **Runs panel**, 280px (140–720), hidden at first, between the body and the status bar: a 34px bar, then the selected run's terminal beside a 220px sessions list (see Runs, below).
+  - **Status bar**, 28px: `alp-status`, the shipped `workspace-status` with a Runs button before the commands hint.
+- **Basecamp**, 300px (220–520), hidden at first, the root row's last child, on `chrome`: a 42px header (`basecamp`) over a stack of the Daypack and the Run tab (see Basecamp, below).
 - Theme: Dracula, shipped as the layout's own theme `themes/alp.json` (background `#282a36`, chrome `#21222c`, border `#44475a`, hover `#343746`, dim `#6272a4`, accent `#bd93f9`, working `#f1fa8c`, blocked `#ff5555`, done `#50fa7b`) and set as the root's `theme`. Every color below is a theme name, so another theme from the picker restyles it all.
 - Window: `canvas` background, no title bar (traffic lights at 12,16), 1px `border` dividers, terminal padding 14×12.
 
@@ -44,11 +46,11 @@ Left to right:
 
 ## Built from
 
-- **Layout** `layouts/alp.json`, cloned from the shipped `main` (0.1.14): `root` row with `"theme": "alp"` → `sidebar` column (`brand` block, `sidebar-lists` column of `limits` / `spaces` / `agents` blocks, `sidebar-footer` block) and `work` column (`tabs` block showing `alp-tabs`, `work-body` row of `main` block + hidden `panel` column with a `panel-body` stack of `files` / `changes`, `status` block). `main` shows `{ "tab": "active" }` with a `pane` frame whose `header` is `{ "content": { "mod": "pane-agent" }, "reveal": "always", "height": 30, "position": "top" }`.
-- **Shipped mods used**: `workspace-chrome` (brand, and footer with `props: { footer: true }`), `spaces`, `agents`, `files`, `changes`, `workspace-status`. Art borrowed from them: `mods/workspace-chrome/clock.svg`, `mods/workspace-chrome/spinner.svg`.
+- **Layout** `layouts/alp.json`, cloned from the shipped `main` (0.1.14): `root` row with `"theme": "alp"` → `sidebar` column (`brand` block, `sidebar-lists` column of `limits` / `spaces` / `agents` blocks, `sidebar-footer` block) and `work` column (`tabs` block showing `alp-tabs`, `work-body` row of `main` block + hidden `panel` column with a `panel-body` stack of `files` / `changes`, hidden `bottom-panel` column, `status` block showing `alp-status`) and the hidden `basecamp` column. `main` shows `{ "tab": "active" }` with a `pane` frame whose `header` is `{ "content": { "mod": "pane-agent" }, "reveal": "always", "height": 30, "position": "top" }`.
+- **Shipped mods used**: `workspace-chrome` (brand, and footer with `props: { footer: true }`), `spaces`, `agents`, `files`, `changes`. Art borrowed from them: `mods/workspace-chrome/clock.svg`, `mods/workspace-chrome/spinner.svg`.
 - **`mods/alp-tabs`**, cloned from the shipped `tabs` (0.1.16) with `mod.clone`, which rewrote its own art paths. Added, marked at the top of `main.js`:
   - The sheep, after +: a 26px button like +, with `sheep.svg` (Alp's own: a fleece outline, a solid face, two legs) at 16px. A click goes to the tab of the space's Alpmeister pane (`panes()` with `mod: "alpmeister"`) or runs `tab.new {mod: "alpmeister", name: "Alpmeister"}`. `selected` while that tab shows. Tooltip "Open Alpmeister" or "Go to Alpmeister".
-  - The Daypack button, after Changes, only when the layout has a `daypack` node: the backpack (`mods/daypack/backpack.svg`) alone in a 26px square, `selected` while the sidebar shows, the icon `accent` while any trail item is open (counted from `~/.local/state/alp/focus.json`, again whenever `shared("alp.focusStamp")` changes). It runs `layout.toggle {id: "daypack"}`.
+  - The Basecamp button, after Changes, only when the layout has a `basecamp` node: the tent (`mods/basecamp/tent.svg`) alone in a 26px square, `selected` while the column shows, the icon `accent` while any trail item is open (counted from `~/.local/state/alp/focus.json`, again whenever `shared("alp.focusStamp")` changes) or any run is running (a live terminal with an `alp.run` label and no `alp.run.exit`). It runs `layout.toggle {id: "basecamp"}`.
 - **`mods/usage-limits`**: a `View` reading `~/.local/state/herdr-agents/limits.json` with `readTextFile(home() + …)`, picking the entry for `props.agent` (default `"claude"`). Uses `theme()` and `layout()` (sidebar width for the rail), and `run("layout.resize", { id: "limits", px })` when the fold state changes. Props: `agent`, `block` (default `"limits"`), `height` (96), `foldedHeight` (82). Art: `gauge.svg`.
 - **`mods/pane-agent`**, cloned from the shipped `pane` (0.1.14): `panes()` + `props().pane` for its pane; `readTextFile` of `~/.local/state/herdr-agents/<terminal>.json` every 3 seconds; `exec("git", ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])` in the pane's folder (a worktree when the two differ; the worktree name is the git dir's last part); `run("pane.focus" | "pane.split" | "pane.zoom" | "pane.close")`. Art: `close`, `split-down`, `split-right`, `zoom`, `unzoom`, `worktree` SVGs.
 - **`plugins/alp`**: a Claude Code plugin (hooks module) that writes the status files; nothing in Claude's own status line. Inside a Herdr terminal (`HC_TERMINAL_ID` set) it writes `<terminal>.json` as `{ agent: "claude", model, effort, context_pct, ts }` on `session.start`, on each main-thread `turn.step` (model, effort) and on `session.measure` (context); on `session.end` it empties the file, or after `/clear` only drops `context_pct`. On `session.measure` with rate limits it rewrites only its own entry in `limits.json`: `{ "claude": { five_hour: { used_percentage, resets_at }, seven_day: {…}, ts } }`.
@@ -261,16 +263,22 @@ open it with `tab.new {mod: "alpmeister"}`.
 - The sidebar shows Session and Weekly percentages and reset times matching `limits.json`, and folding the sidebar shows the rail cell with the same space above and below it as the unfolded rows (the `limits` block at 82px), back to 96px when unfolded.
 - Exiting Claude empties the terminal's file and its chips disappear.
 
+## Basecamp
+
+- **What:** the column on the window's right edge, beside the terminals as the left sidebar is.
+  The Basecamp button in the tab bar shows or hides it (drawn by `alp-tabs`, above).
+- **Where:** the `basecamp` column, the root row's last child: a `basecamp-header` block (42px,
+  drags the window) showing `mods/basecamp/`, over the `basecamp-body` stack of
+  `basecamp-daypack` (`daypack`) and `basecamp-run` (`alp-runs` with `props: { part: "list" }`).
+- **Header:** two tabs, Daypack (the backpack, then the open trail count in `accent`) and Run
+  (`mods/alp-runs/play.svg`, then the running count in `working`), `selected` on the stack's
+  active child; a click runs `layout.select`. A close button runs `layout.hide`.
+
 ## Daypack
 
-- **What:** what you carry through the day, in a column on the window's right edge, beside the
-  terminals as the left sidebar is. It holds today's trail. The Daypack button in the
-  tab bar, after Changes, shows or hides it (drawn by `alp-tabs`, above).
-- **Where:** `mods/daypack/`, placed by the `alp` layout as the `daypack` block, the root row's
-  last child: 280px, 200 to 480px, hidden at first.
+- **What:** what you carry through the day, Basecamp's first tab. It holds today's trail.
 - **How it looks:**
-  - The sidebar is `chrome`: a 42px "Daypack" header with the open count and a close button
-    (`layout.hide`), then a "TODAY'S TRAIL" group (empty: "The trail is clear.")
+  - A "TODAY'S TRAIL" group (empty: "The trail is clear.")
     with the items in sections by kind (Todos, PRs, Issues), each headed by its open count.
     A row holds the item's checkbox, title and number. A click on a title opens it on GitHub.
   - An issue or PR row ends with the Claude button: it opens a Claude tab running the prompt from
@@ -278,7 +286,47 @@ open it with `tab.new {mod: "alpmeister"}`.
     repository folder (`account.folders`), as Alpmeister's Start and Review buttons do. The
     button shows only when that prompt is set. The number shows as `repo#12`.
 - **State:**
-  - The layout keeps whether the sidebar shows, as it does for the left sidebar.
   - It reads and writes `~/.local/state/alp/focus.json`, the file Alpmeister keeps. Mods cannot
     import across folders, so `focus-file.js` is its own reader of that format.
   - Each side sets `shared("alp.focusStamp")` after a write, and the other reloads the file.
+
+## Runs
+
+- **What:** one mod, `mods/alp-runs/`, drawn by `props().part`: `list` (Basecamp's Run tab),
+  `bar`, `sessions` and `empty` (the runs panel), and `input`, `save`, `menu` (overlays).
+- **Workspace:** the first of the focused terminal's folder, the active tab's terminals', the
+  space's other terminals' and the space's folder that is in a git repo. `git rev-parse
+  --path-format=absolute --show-toplevel --git-common-dir` gives its root and, for a worktree,
+  the main checkout.
+- **Entries:** `.vscode/launch.json` (configurations and compounds), `.vscode/tasks.json` (with
+  the `osx`/`linux`/`windows` block) and `~/.config/alp/commands.json` (`{ commands: [{ name,
+  command, cwd?, env?, inputs?, workspace? }] }`, `workspace` matching the root or the main
+  checkout). JSONC is read by `jsonc.js`. `${workspaceFolder}`, `${env:X}`, `${userHome}` and
+  `${input:id}` resolve; `${file}`-like variables, `${command:}`, `${config:}`, browser, attach
+  and other debugger types mark the entry as not runnable, with the reason.
+- **Run tab:** a filter and reload button, the workspace name, then LAUNCH, TASKS and SAVED (with
+  +). A row: the session mark (`●` `working`, `✓` `done`, `✗` `blocked`), the name, and a play
+  button (a spinner while starting). A click on a row with a session selects it. Entries that
+  can't run fold under "N need VS Code". Right-click: a saved command offers Edit and Delete, a
+  task offers "Save to my commands…".
+- **Starting:** inputs first (the `input` dialog: chips for `pickString`, fields for
+  `promptString`, defaults from `shared("alp.runs.inputs")`), handed back to the list through
+  `shared("alp.runs.launch")`. Then `dependsOn`/`preLaunchTask` (sequence or parallel; a task
+  that isn't `isBackground` must exit 0 first), then the command or, for a compound, each
+  config. A command runs as `hc run --bg --no-parent --name <slug> --cwd <cwd>` with the labels
+  `alp.run`, `alp.run.key`, `alp.run.kind` and `alp.workspace`, in `$SHELL -l -i -c` with a
+  wrapper: `trap : INT`, the command in a subshell, then `hc label <name> alp.run.exit=$?`, an
+  "exited with" line and `exec tail -f /dev/null`, so the terminal and its output stay. A
+  finished session of the same entry is closed first; a running one is shown instead.
+- **Runs panel:** the `bottom-panel` column in `work`: `runs-bar` (34px, `part: "bar"`), then the
+  `runs-body` row of `run-output` (the selected session's `{ terminal }` block, or `part:
+  "empty"`) and `runs-sessions` (220px, `part: "sessions"`). The selection is
+  `shared("alp.runs.selected")`; `panel.js` rewrites `run-output` with `layout.set`, because
+  Herdr drops a terminal block when its terminal ends. The bar shows the mark, the entry, the
+  terminal name, stop (SIGINT to the foreground process group; a second press within 4 s sends
+  TERM), restart (with the answers it started with, `shared("alp.runs.started")`) and hide.
+- **Status bar:** `mods/alp-status/`, cloned from `workspace-status` (0.1.16), adds the Runs button
+  (`mods/alp-runs/terminal.svg` and the running count) that runs `layout.toggle {id:
+  "bottom-panel"}`.
+- **Agents:** the plugin's `alp-runs` skill: `hc ls --label alp.workspace=<root>` and `hc read
+  <name>`.
