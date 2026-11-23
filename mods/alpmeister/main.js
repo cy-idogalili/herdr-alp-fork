@@ -773,7 +773,7 @@ export default class Alpmeister extends View {
     const config = this.config;
     const model = this.model;
     // The Herds canvas in full tab hides the header too: the canvas takes the whole tab.
-    const fullCanvas = this.tab === TABS.herds && this.herdsCanvas.full && this.herdsCanvas.mode === "canvas";
+    const fullCanvas = this.tab === TABS.herds && this.herdsCanvas.full;
     let content = v_flex().w_full().p(18).gap(14).when(!fullCanvas, (el) => el.child(this.header(t)));
     if (this.tab === TABS.settings) {
       content = content.child(
