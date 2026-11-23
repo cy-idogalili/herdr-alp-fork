@@ -10,10 +10,10 @@ function nextSignificant(text, from) {
   let i = from;
   while (i < text.length) {
     if (/\s/.test(text[i])) i++;
-    else if (text[i] === '/' && text[i + 1] === '/') while (i < text.length && text[i] !== '\n') i++;
-    else if (text[i] === '/' && text[i + 1] === '*') {
+    else if (text[i] === "/" && text[i + 1] === "/") while (i < text.length && text[i] !== "\n") i++;
+    else if (text[i] === "/" && text[i + 1] === "*") {
       i += 2;
-      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
       i += 2;
     } else return i;
   }
@@ -26,21 +26,21 @@ function nextSignificant(text, from) {
  * @returns {string} Plain JSON source.
  */
 export function stripJsonc(text) {
-  let out = '';
+  let out = "";
   let i = 0;
   while (i < text.length) {
     const char = text[i];
     if (char === '"') {
       const start = i;
       i++;
-      while (i < text.length && text[i] !== '"') i += text[i] === '\\' ? 2 : 1;
+      while (i < text.length && text[i] !== '"') i += text[i] === "\\" ? 2 : 1;
       out += text.slice(start, i + 1);
       i++;
-    } else if (char === '/' && (text[i + 1] === '/' || text[i + 1] === '*')) {
+    } else if (char === "/" && (text[i + 1] === "/" || text[i + 1] === "*")) {
       i = nextSignificant(text, i);
-    } else if (char === ',') {
+    } else if (char === ",") {
       const after = nextSignificant(text, i + 1);
-      if (text[after] !== '}' && text[after] !== ']') out += char;
+      if (text[after] !== "}" && text[after] !== "]") out += char;
       i++;
     } else {
       out += char;

@@ -1,42 +1,47 @@
 // What the Run tab lists: a workspace's VS Code launch configurations and tasks, and the commands
 // the person saved in ~/.config/alp/commands.json. Each becomes an entry the runner can start.
 
-import { exec, home, readTextFile } from 'herdr';
-import { parseJsonc } from './jsonc.js';
-import { inputIds, unsupportedReason } from './template.js';
+import { exec, home, readTextFile } from "herdr";
+import { parseJsonc } from "./jsonc.js";
+import { inputIds, unsupportedReason } from "./template.js";
 
 export const COMMANDS_PATH = () => `${home()}/.config/alp/commands.json`;
-const NODE_TYPES = new Set(['node', 'pwa-node']);
-const PYTHON_TYPES = new Set(['python', 'debugpy']);
-const BROWSER_TYPES = new Set(['chrome', 'pwa-chrome', 'msedge', 'pwa-msedge', 'firefox']);
+const NODE_TYPES = new Set(["node", "pwa-node"]);
+const PYTHON_TYPES = new Set(["python", "debugpy"]);
+const BROWSER_TYPES = new Set(["chrome", "pwa-chrome", "msedge", "pwa-msedge", "firefox"]);
 
 /** A path with a leading `~` made absolute, without a trailing slash. */
-export const expandHome = (path) => (path?.startsWith('~') ? home() + path.slice(1) : (path ?? '')).replace(/\/+$/, '');
+export const expandHome = (path) => (path?.startsWith("~") ? home() + path.slice(1) : (path ?? "")).replace(/\/+$/, "");
 
 /** A string, or the `value` of VS Code's `{ value, quoting }` form. */
-const text = (value) => (typeof value === 'string' ? value : typeof value?.value === 'string' ? value.value : '');
+const text = (value) => (typeof value === "string" ? value : typeof value?.value === "string" ? value.value : "");
 
 /** A list of names from a string, a list, or nothing. */
 const names = (value) =>
   value == null
     ? []
     : (Array.isArray(value) ? value : [value])
-        .map((item) => (typeof item === 'string' ? item : (item?.label ?? '')))
+        .map((item) => (typeof item === "string" ? item : (item?.label ?? "")))
         .filter(Boolean);
 
 /**
  * The workspace a folder belongs to: its git checkout, and the main checkout when it is a worktree.
  * @param {string} folder A folder in the workspace.
- * @returns {Promise<{ root: string, mainRoot: string, name: string }>}
+ * @returns {Promise<{ root: string, mainRoot: string, name: string, repo: boolean }>}
  */
 export async function findWorkspace(folder) {
-  const result = await exec('git', ['-C', folder, 'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir']).catch(
-    () => null
-  );
-  const [root, common] = result?.code === 0 ? result.stdout.trim().split('\n') : [folder, ''];
-  const absoluteCommon = common?.startsWith('/') ? common : `${root}/${common}`;
-  const mainRoot = absoluteCommon.endsWith('/.git') ? absoluteCommon.slice(0, -5) : root;
-  return { root, mainRoot, name: root.split('/').pop() ?? root };
+  const result = await exec("git", [
+    "-C",
+    folder,
+    "rev-parse",
+    "--path-format=absolute",
+    "--show-toplevel",
+    "--git-common-dir",
+  ]).catch(() => null);
+  const [root, common] = result?.code === 0 ? result.stdout.trim().split("\n") : [folder, ""];
+  const absoluteCommon = common?.startsWith("/") ? common : `${root}/${common}`;
+  const mainRoot = absoluteCommon.endsWith("/.git") ? absoluteCommon.slice(0, -5) : root;
+  return { root, mainRoot, name: root.split("/").pop() ?? root, repo: result?.code === 0 };
 }
 
 /**
@@ -48,10 +53,10 @@ function templatesOf(entry) {
   const command = entry.command;
   const words = !command
     ? []
-    : 'argv' in command
-      ? [...command.argv, command.tail ?? '']
+    : "argv" in command
+      ? [...command.argv, command.tail ?? ""]
       : [command.shell, ...command.args.map((arg) => arg.template)];
-  return [...words, entry.cwd, entry.envFile ?? '', ...Object.values(entry.env ?? {})].map(String);
+  return [...words, entry.cwd, entry.envFile ?? "", ...Object.values(entry.env ?? {})].map(String);
 }
 
 /** Adds what can't run here and which inputs it asks for. */
@@ -72,27 +77,27 @@ function finish(entry, reason = null) {
 function launchEntry(config) {
   const base = {
     key: `launch:${config.name}`,
-    kind: 'launch',
+    kind: "launch",
     name: config.name,
-    cwd: config.cwd ?? '${workspaceFolder}',
+    cwd: config.cwd ?? "${workspaceFolder}",
     env: config.env ?? {},
     envFile: config.envFile ?? null,
     dependsOn: names(config.preLaunchTask),
-    dependsOrder: 'sequence',
+    dependsOrder: "sequence",
     isBackground: true,
     command: null,
   };
-  if (config.request && config.request !== 'launch') return finish(base, 'attaches a debugger to a running program');
+  if (config.request && config.request !== "launch") return finish(base, "attaches a debugger to a running program");
   if (BROWSER_TYPES.has(config.type)) return finish(base, "opens a browser under VS Code's debugger");
   const args = Array.isArray(config.args) ? config.args : [];
-  const rawArgs = typeof config.args === 'string' ? [{ template: config.args }] : [];
-  if (config.type === 'node-terminal') return finish({ ...base, command: { shell: config.command ?? '', args: [] } });
+  const rawArgs = typeof config.args === "string" ? [{ template: config.args }] : [];
+  if (config.type === "node-terminal") return finish({ ...base, command: { shell: config.command ?? "", args: [] } });
   if (NODE_TYPES.has(config.type)) {
     if (!config.program && !config.runtimeExecutable && !args.length) {
-      return base.dependsOn.length ? finish(base) : finish(base, 'names no program to run');
+      return base.dependsOn.length ? finish(base) : finish(base, "names no program to run");
     }
     const argv = [
-      config.runtimeExecutable ?? 'node',
+      config.runtimeExecutable ?? "node",
       ...(config.runtimeArgs ?? []),
       ...(config.program ? [config.program] : []),
       ...args,
@@ -100,9 +105,9 @@ function launchEntry(config) {
     return finish({ ...base, command: { argv, tail: rawArgs[0]?.template ?? null } });
   }
   if (PYTHON_TYPES.has(config.type)) {
-    const target = config.module ? ['-m', config.module] : config.program ? [config.program] : null;
-    if (!target) return finish(base, 'names no program to run');
-    return finish({ ...base, command: { argv: [config.python ?? 'python3', ...target, ...args] } });
+    const target = config.module ? ["-m", config.module] : config.program ? [config.program] : null;
+    if (!target) return finish(base, "names no program to run");
+    return finish({ ...base, command: { argv: [config.python ?? "python3", ...target, ...args] } });
   }
   return finish(base, `uses the ${config.type} debugger`);
 }
@@ -124,14 +129,14 @@ function compoundEntry(compound, launches) {
       : null;
   return {
     key: `compound:${compound.name}`,
-    kind: 'compound',
+    kind: "compound",
     name: compound.name,
     configurations,
     dependsOn: names(compound.preLaunchTask),
-    dependsOrder: 'sequence',
+    dependsOrder: "sequence",
     isBackground: true,
     command: null,
-    cwd: '${workspaceFolder}',
+    cwd: "${workspaceFolder}",
     env: {},
     envFile: null,
     unsupported: reason,
@@ -146,7 +151,7 @@ function compoundEntry(compound, launches) {
  * @returns {object} The entry.
  */
 function taskEntry(raw, platform) {
-  const own = raw[{ macos: 'osx', linux: 'linux', windows: 'windows' }[platform]] ?? {};
+  const own = raw[{ macos: "osx", linux: "linux", windows: "windows" }[platform]] ?? {};
   const task = {
     ...raw,
     ...own,
@@ -156,24 +161,24 @@ function taskEntry(raw, platform) {
   const args = (task.args ?? []).map(text);
   const base = {
     key: `task:${name}`,
-    kind: 'task',
+    kind: "task",
     name,
-    cwd: task.options?.cwd ?? '${workspaceFolder}',
+    cwd: task.options?.cwd ?? "${workspaceFolder}",
     env: task.options?.env ?? {},
     envFile: null,
     dependsOn: names(task.dependsOn),
-    dependsOrder: task.dependsOrder === 'sequence' ? 'sequence' : 'parallel',
+    dependsOrder: task.dependsOrder === "sequence" ? "sequence" : "parallel",
     isBackground: Boolean(task.isBackground),
     command: null,
   };
-  if (task.type === 'npm') {
+  if (task.type === "npm") {
     const cwd = task.path ? `\${workspaceFolder}/${task.path}` : base.cwd;
     return finish({ ...base, cwd, command: { shell: `npm run ${task.script}`, args: [] } });
   }
   const command = text(task.command);
-  if (!command) return base.dependsOn.length ? finish(base) : finish(base, 'has no command');
-  if (task.type === 'process') return finish({ ...base, command: { argv: [command, ...args] } });
-  if (task.type && task.type !== 'shell')
+  if (!command) return base.dependsOn.length ? finish(base) : finish(base, "has no command");
+  if (task.type === "process") return finish({ ...base, command: { argv: [command, ...args] } });
+  if (task.type && task.type !== "shell")
     return finish(base, `is a ${task.type} task, which needs its VS Code extension`);
   return finish({
     ...base,
@@ -189,15 +194,15 @@ function taskEntry(raw, platform) {
 function savedEntry(saved) {
   return finish({
     key: `saved:${saved.name}`,
-    kind: 'saved',
+    kind: "saved",
     name: saved.name,
-    cwd: saved.cwd ?? '${workspaceFolder}',
+    cwd: saved.cwd ?? "${workspaceFolder}",
     env: saved.env ?? {},
     envFile: null,
     dependsOn: [],
-    dependsOrder: 'parallel',
+    dependsOrder: "parallel",
     isBackground: false,
-    command: { shell: saved.command ?? '', args: [] },
+    command: { shell: saved.command ?? "", args: [] },
     workspace: saved.workspace ?? null,
     inputDefs: Object.fromEntries((saved.inputs ?? []).map((input) => [input.id, input])),
   });
@@ -215,7 +220,7 @@ async function readConfig(path, errors) {
   try {
     return { text: source, value: parseJsonc(source) ?? {} };
   } catch (error) {
-    errors.push(`${path.split('/').slice(-2).join('/')}: ${error}`);
+    errors.push(`${path.split("/").slice(-2).join("/")}: ${error}`);
     return { text: source, value: {} };
   }
 }
@@ -247,7 +252,7 @@ export async function loadEntries(workspace, platform) {
   const inputs = Object.fromEntries(
     [...(launchFile.value.inputs ?? []), ...(tasksFile.value.inputs ?? [])]
       .filter((input) => input?.id)
-      .map((input) => [input.id, input])
+      .map((input) => [input.id, input]),
   );
   return { launch: [...compounds, ...configs], tasks, saved, inputs, errors, commandsText: commandsFile.text };
 }

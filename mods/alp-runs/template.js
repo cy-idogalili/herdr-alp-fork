@@ -1,19 +1,19 @@
 // VS Code `${...}` variables, resolved into text a POSIX shell runs.
 
 const EDITOR_VARIABLES = new Set([
-  'file',
-  'fileBasename',
-  'fileBasenameNoExtension',
-  'fileDirname',
-  'fileDirnameBasename',
-  'fileExtname',
-  'fileWorkspaceFolder',
-  'relativeFile',
-  'relativeFileDirname',
-  'lineNumber',
-  'selectedText',
-  'execPath',
-  'defaultBuildTask',
+  "file",
+  "fileBasename",
+  "fileBasenameNoExtension",
+  "fileDirname",
+  "fileDirnameBasename",
+  "fileExtname",
+  "fileWorkspaceFolder",
+  "relativeFile",
+  "relativeFileDirname",
+  "lineNumber",
+  "selectedText",
+  "execPath",
+  "defaultBuildTask",
 ]);
 
 const VARIABLE = /\$\{([^}]+)\}/g;
@@ -26,8 +26,8 @@ const VARIABLE = /\$\{([^}]+)\}/g;
 export function unsupportedReason(text) {
   for (const [, name] of String(text).matchAll(VARIABLE)) {
     if (EDITOR_VARIABLES.has(name)) return `uses \${${name}}, which needs an open editor`;
-    if (name.startsWith('command:')) return `uses \${${name}}, a VS Code command`;
-    if (name.startsWith('config:')) return `uses \${${name}}, a VS Code setting`;
+    if (name.startsWith("command:")) return `uses \${${name}}, a VS Code command`;
+    if (name.startsWith("config:")) return `uses \${${name}}, a VS Code setting`;
   }
   return null;
 }
@@ -40,7 +40,7 @@ export function unsupportedReason(text) {
 export function inputIds(text) {
   return [...String(text).matchAll(VARIABLE)]
     .map(([, name]) => name)
-    .filter((name) => name.startsWith('input:'))
+    .filter((name) => name.startsWith("input:"))
     .map((name) => name.slice(6));
 }
 
@@ -57,13 +57,13 @@ function pieces(text, context) {
     parts.push({ text: String(text).slice(last, match.index) });
     last = match.index + match[0].length;
     const name = match[1];
-    if (name.startsWith('env:')) parts.push({ env: name.slice(4) });
-    else if (name.startsWith('input:')) parts.push({ text: context.answers[name.slice(6)] ?? '' });
-    else if (name === 'workspaceFolder' || name === 'workspaceRoot' || name === 'cwd')
+    if (name.startsWith("env:")) parts.push({ env: name.slice(4) });
+    else if (name.startsWith("input:")) parts.push({ text: context.answers[name.slice(6)] ?? "" });
+    else if (name === "workspaceFolder" || name === "workspaceRoot" || name === "cwd")
       parts.push({ text: context.workspace });
-    else if (name === 'workspaceFolderBasename') parts.push({ text: context.workspace.split('/').pop() ?? '' });
-    else if (name === 'userHome') parts.push({ text: context.home });
-    else if (name === 'pathSeparator' || name === '/') parts.push({ text: '/' });
+    else if (name === "workspaceFolderBasename") parts.push({ text: context.workspace.split("/").pop() ?? "" });
+    else if (name === "userHome") parts.push({ text: context.home });
+    else if (name === "pathSeparator" || name === "/") parts.push({ text: "/" });
     else parts.push({ text: match[0] });
   }
   parts.push({ text: String(text).slice(last) });
@@ -85,8 +85,8 @@ export const quote = (text) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(text) ? text : `
  */
 export const resolveRaw = (text, context) =>
   pieces(text, context)
-    .map((part) => ('env' in part ? `\${${part.env}}` : part.text))
-    .join('');
+    .map((part) => ("env" in part ? `\${${part.env}}` : part.text))
+    .join("");
 
 /**
  * A template as one quoted shell word, for an argument VS Code would pass without a shell.
@@ -96,9 +96,9 @@ export const resolveRaw = (text, context) =>
  */
 export function resolveWord(text, context) {
   const word = pieces(text, context)
-    .filter((part) => 'env' in part || part.text)
-    .map((part) => ('env' in part ? `"\${${part.env}}"` : quote(part.text)))
-    .join('');
+    .filter((part) => "env" in part || part.text)
+    .map((part) => ("env" in part ? `"\${${part.env}}"` : quote(part.text)))
+    .join("");
   return word || "''";
 }
 
@@ -110,5 +110,5 @@ export function resolveWord(text, context) {
  */
 export const resolveText = (text, context) =>
   pieces(text, context)
-    .map((part) => ('env' in part ? `$${part.env}` : part.text))
-    .join('');
+    .map((part) => ("env" in part ? `$${part.env}` : part.text))
+    .join("");

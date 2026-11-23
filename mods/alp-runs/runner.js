@@ -3,18 +3,18 @@
 // `hc read <name>`. A wrapper keeps the terminal open after the command ends, so its output stays,
 // and records the exit code as the `alp.run.exit` label.
 
-import { exec, hc, home, readTextFile, run, setShared, shared, terminals } from 'herdr';
-import { quote, resolveRaw, resolveText, resolveWord } from './template.js';
+import { exec, hc, home, readTextFile, run, setShared, shared, terminals } from "herdr";
+import { quote, resolveRaw, resolveText, resolveWord } from "./template.js";
 
 export const LABEL = {
-  run: 'alp.run',
-  key: 'alp.run.key',
-  kind: 'alp.run.kind',
-  workspace: 'alp.workspace',
-  exit: 'alp.run.exit',
+  run: "alp.run",
+  key: "alp.run.key",
+  kind: "alp.run.kind",
+  workspace: "alp.workspace",
+  exit: "alp.run.exit",
 };
-const STARTED_KEY = 'alp.runs.started';
-const POSIX_SHELLS = new Set(['zsh', 'bash', 'sh', 'dash', 'ksh']);
+const STARTED_KEY = "alp.runs.started";
+const POSIX_SHELLS = new Set(["zsh", "bash", "sh", "dash", "ksh"]);
 const MAX_DEPTH = 8;
 
 let shellPath = null;
@@ -22,9 +22,9 @@ let shellPath = null;
 /** The person's login shell, as the wrapper runs in it. */
 async function loginShell() {
   if (shellPath) return shellPath;
-  const result = await exec('sh', ['-c', 'printf %s "$SHELL"']).catch(() => null);
-  const found = result?.stdout.trim() || '/bin/zsh';
-  shellPath = POSIX_SHELLS.has(found.split('/').pop()) ? found : '/bin/zsh';
+  const result = await exec("sh", ["-c", 'printf %s "$SHELL"']).catch(() => null);
+  const found = result?.stdout.trim() || "/bin/zsh";
+  shellPath = POSIX_SHELLS.has(found.split("/").pop()) ? found : "/bin/zsh";
   return shellPath;
 }
 
@@ -34,18 +34,18 @@ async function loginShell() {
  */
 export function sessions() {
   return terminals()
-    .filter((terminal) => terminal.state === 'live' && terminal.labels?.[LABEL.run])
+    .filter((terminal) => terminal.state === "live" && terminal.labels?.[LABEL.run])
     .map((terminal) => {
       const exit = terminal.labels[LABEL.exit];
       return {
         address: terminal.address,
         name: terminal.name,
         title: terminal.labels[LABEL.run],
-        key: terminal.labels[LABEL.key] ?? '',
-        kind: terminal.labels[LABEL.kind] ?? '',
-        workspace: terminal.labels[LABEL.workspace] ?? '',
-        exit: exit == null || exit === '' ? null : Number(exit),
-        running: exit == null || exit === '',
+        key: terminal.labels[LABEL.key] ?? "",
+        kind: terminal.labels[LABEL.kind] ?? "",
+        workspace: terminal.labels[LABEL.workspace] ?? "",
+        exit: exit == null || exit === "" ? null : Number(exit),
+        running: exit == null || exit === "",
         pid: terminal.pid,
         foregroundPid: terminal.foreground?.pid ?? null,
         created: terminal.created_ms ?? 0,
@@ -74,13 +74,13 @@ export function neededInputs(entry, catalog) {
     (current.configurations ?? []).forEach((name) =>
       visit(
         catalog.launch.find((item) => item.name === name),
-        depth + 1
-      )
+        depth + 1,
+      ),
     );
     current.inputIds.forEach((id) => ids.includes(id) || ids.push(id));
   };
   visit(entry, 0);
-  return ids.map((id) => entry.inputDefs?.[id] ?? catalog.inputs[id] ?? { id, type: 'promptString', description: id });
+  return ids.map((id) => entry.inputDefs?.[id] ?? catalog.inputs[id] ?? { id, type: "promptString", description: id });
 }
 
 /** A task by its label. */
@@ -91,16 +91,16 @@ function uniqueName(title, workspace) {
   const slug = (text) =>
     text
       .toLowerCase()
-      .normalize('NFKD')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .normalize("NFKD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
   const taken = new Set(
     terminals()
-      .filter((terminal) => terminal.state === 'live')
-      .map((terminal) => terminal.name)
+      .filter((terminal) => terminal.state === "live")
+      .map((terminal) => terminal.name),
   );
-  const base = slug(title).slice(0, 24).replace(/-+$/, '') || 'run';
-  const candidates = [base, `${base}-${slug(workspace.name)}`.slice(0, 32).replace(/-+$/, '')];
+  const base = slug(title).slice(0, 24).replace(/-+$/, "") || "run";
+  const candidates = [base, `${base}-${slug(workspace.name)}`.slice(0, 32).replace(/-+$/, "")];
   for (let n = 2; n < 100; n++) candidates.push(`${base.slice(0, 28)}-${n}`);
   return candidates.find((name) => !taken.has(name));
 }
@@ -114,12 +114,12 @@ async function readEnvFile(path) {
   const text = await readTextFile(path).catch(() => null);
   if (text == null) throw new Error(`envFile ${path} not found`);
   const env = {};
-  for (const line of text.split('\n')) {
+  for (const line of text.split("\n")) {
     const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
     if (!match) continue;
     const value = match[2].trim();
     const quoted = /^(['"])(.*)\1$/.exec(value);
-    env[match[1]] = quoted ? quoted[2].replace(/\\n/g, quoted[1] === '"' ? '\n' : '\\n') : value.replace(/\s+#.*$/, '');
+    env[match[1]] = quoted ? quoted[2].replace(/\\n/g, quoted[1] === '"' ? "\n" : "\\n") : value.replace(/\s+#.*$/, "");
   }
   return env;
 }
@@ -131,14 +131,14 @@ async function readEnvFile(path) {
  * @returns {string}
  */
 export function commandLine(command, context) {
-  if ('argv' in command) {
+  if ("argv" in command) {
     const words = command.argv.map((word) => resolveWord(word, context));
-    return [...words, ...(command.tail ? [resolveRaw(command.tail, context)] : [])].join(' ');
+    return [...words, ...(command.tail ? [resolveRaw(command.tail, context)] : [])].join(" ");
   }
   const args = command.args.map((arg) =>
-    arg.quoted ? resolveWord(arg.template, context) : resolveRaw(arg.template, context)
+    arg.quoted ? resolveWord(arg.template, context) : resolveRaw(arg.template, context),
   );
-  return [resolveRaw(command.shell, context), ...args].join(' ');
+  return [resolveRaw(command.shell, context), ...args].join(" ");
 }
 
 /**
@@ -155,13 +155,13 @@ function wrapperScript(entry, name, context, fileEnv) {
     ...Object.entries(entry.env).map(([key, value]) => `export ${key}=${resolveWord(String(value), context)}`),
   ];
   return [
-    'trap : INT',
-    `(${[...exports, commandLine(entry.command, context)].join('\n')}\n)`,
-    'alp_exit=$?',
+    "trap : INT",
+    `(${[...exports, commandLine(entry.command, context)].join("\n")}\n)`,
+    "alp_exit=$?",
     `hc label ${quote(name)} ${LABEL.exit}=$alp_exit >/dev/null 2>&1`,
     `printf '\\n\\033[2m[%s exited with %s]\\033[0m\\n' ${quote(entry.name)} "$alp_exit"`,
-    'exec tail -f /dev/null',
-  ].join('\n');
+    "exec tail -f /dev/null",
+  ].join("\n");
 }
 
 /**
@@ -172,7 +172,7 @@ function wrapperScript(entry, name, context, fileEnv) {
 async function startSession(entry, workspace, answers) {
   const existing = sessionFor(entry.key, workspace.root);
   if (existing?.running) return existing.address;
-  if (existing) await hc(['kill', existing.address]);
+  if (existing) await closeAndWait(existing.address);
   const context = { workspace: workspace.root, home: home(), answers };
   const cwd = resolveText(entry.cwd, context);
   const fileEnv = entry.envFile ? await readEnvFile(resolveText(entry.envFile, context)) : {};
@@ -183,23 +183,23 @@ async function startSession(entry, workspace, answers) {
     [LABEL.key, entry.key],
     [LABEL.kind, entry.kind],
     [LABEL.workspace, workspace.root],
-  ].flatMap(([key, value]) => ['--label', `${key}=${value}`]);
+  ].flatMap(([key, value]) => ["--label", `${key}=${value}`]);
   const script = wrapperScript(entry, name, context, fileEnv);
   const result = await hc([
-    'run',
-    '--bg',
-    '--json',
-    '--no-parent',
-    '--name',
+    "run",
+    "--bg",
+    "--json",
+    "--no-parent",
+    "--name",
     name,
-    '--cwd',
+    "--cwd",
     cwd,
     ...labels,
-    '--',
+    "--",
     shell,
-    '-l',
-    '-i',
-    '-c',
+    "-l",
+    "-i",
+    "-c",
     script,
   ]);
   if (result.code !== 0) throw new Error(`${entry.name}: ${(result.stderr || result.stdout).trim()}`);
@@ -209,13 +209,25 @@ async function startSession(entry, workspace, answers) {
   return address;
 }
 
+/** Ends a terminal and resolves once herdr-core no longer lists it, so its name is free again. */
+export async function closeAndWait(address) {
+  await hc(["kill", address]);
+  for (
+    let i = 0;
+    i < 30 && terminals().some((terminal) => terminal.address === address && terminal.state === "live");
+    i++
+  ) {
+    await exec("sleep", ["0.1"]);
+  }
+}
+
 /** Resolves when a session's command exits; rejects when its terminal goes first. */
 async function waitForExit(address) {
   for (;;) {
     const session = sessions().find((candidate) => candidate.address === address);
-    if (!session) throw new Error('its terminal was closed');
+    if (!session) throw new Error("its terminal was closed");
     if (!session.running) return session.exit;
-    await exec('sleep', ['0.5']);
+    await exec("sleep", ["0.5"]);
   }
 }
 
@@ -239,9 +251,9 @@ export async function startEntry(entry, catalog, workspace, answers, depth = 0) 
     const exit = await waitForExit(address);
     if (exit !== 0) throw new Error(`${name} exited with ${exit}, so ${entry.name} didn't start`);
   };
-  if (entry.dependsOrder === 'sequence') for (const name of entry.dependsOn) await runDependency(name);
+  if (entry.dependsOrder === "sequence") for (const name of entry.dependsOn) await runDependency(name);
   else await Promise.all(entry.dependsOn.map(runDependency));
-  if (entry.kind === 'compound') {
+  if (entry.kind === "compound") {
     const addresses = [];
     for (const name of entry.configurations) {
       addresses.push(
@@ -250,8 +262,8 @@ export async function startEntry(entry, catalog, workspace, answers, depth = 0) 
           catalog,
           workspace,
           answers,
-          depth + 1
-        )
+          depth + 1,
+        ),
       );
     }
     return addresses.find(Boolean) ?? null;
@@ -268,17 +280,17 @@ export const startedAnswers = (address) => (shared(STARTED_KEY) ?? {})[address]?
  * @param {object} session From `sessions()`.
  * @param {"INT" | "TERM" | "KILL"} signal The signal.
  */
-export async function stopSession(session, signal = 'INT') {
+export async function stopSession(session, signal = "INT") {
   if (!session.running) return;
   const target = session.foregroundPid && session.foregroundPid !== session.pid ? session.foregroundPid : null;
   const script = target
     ? 'pg=$(ps -o pgid= -p "$2" | tr -d " "); [ -n "$pg" ] && kill -"$1" -- "-$pg"'
     : 'pkill -"$1" -P "$3"';
-  await exec('sh', ['-c', script, 'sh', signal, String(target ?? ''), String(session.pid)]);
+  await exec("sh", ["-c", script, "sh", signal, String(target ?? ""), String(session.pid)]);
 }
 
 /** Ends a session's terminal and its output. */
-export const closeSession = (session) => run('terminal.kill', { terminal: session.address });
+export const closeSession = (session) => run("terminal.kill", { terminal: session.address });
 
 /** Drops what is remembered about sessions that are gone. */
 export function forgetClosedSessions() {
