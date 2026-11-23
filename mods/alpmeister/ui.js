@@ -212,12 +212,11 @@ export const ICONS = {
   fullTab: "mods/alpmeister/full-tab.svg",
   exitFullTab: "mods/alpmeister/exit-full-tab.svg",
   resetLayout: "mods/alpmeister/reset-layout.svg",
-  list: "mods/alpmeister/list.svg",
-  canvas: "mods/alpmeister/canvas.svg",
   lineCurved: "mods/alpmeister/line-curved.svg",
   lineStep: "mods/alpmeister/line-step.svg",
   pin: "mods/workspace-chrome/pin.svg",
   close: "mods/workspace-chrome/x.svg",
+  edit: "mods/alpmeister/pencil.svg",
   claude: "icons/claude.svg",
   settings: "mods/workspace-chrome/settings.svg",
 };

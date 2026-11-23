@@ -168,10 +168,71 @@
           "gap": 8
         },
         {
+          "id": "bottom-panel",
+          "type": "column",
+          "children": [
+            {
+              "id": "runs-bar",
+              "type": "block",
+              "content": {
+                "mod": "alp-runs",
+                "props": {
+                  "part": "bar"
+                }
+              },
+              "size": {
+                "px": 34
+              }
+            },
+            {
+              "id": "runs-body",
+              "type": "row",
+              "children": [
+                {
+                  "id": "run-output",
+                  "type": "block",
+                  "content": {
+                    "mod": "alp-runs",
+                    "props": {
+                      "part": "empty"
+                    }
+                  }
+                },
+                {
+                  "id": "runs-sessions",
+                  "type": "block",
+                  "content": {
+                    "mod": "alp-runs",
+                    "props": {
+                      "part": "sessions"
+                    }
+                  },
+                  "size": {
+                    "px": 220
+                  },
+                  "min": 160,
+                  "max": 420
+                }
+              ],
+              "divider": {
+                "width": 1,
+                "color": "border"
+              }
+            }
+          ],
+          "size": {
+            "px": 280
+          },
+          "min": 140,
+          "max": 720,
+          "background": "chrome",
+          "hidden": true
+        },
+        {
           "id": "status",
           "type": "block",
           "content": {
-            "mod": "workspace-status"
+            "mod": "alp-status"
           },
           "size": {
             "px": 28
@@ -181,16 +242,51 @@
       "resizable": false
     },
     {
-      "id": "daypack",
-      "type": "block",
-      "content": {
-        "mod": "daypack"
-      },
+      "id": "basecamp",
+      "type": "column",
+      "children": [
+        {
+          "id": "basecamp-header",
+          "type": "block",
+          "content": {
+            "mod": "basecamp"
+          },
+          "size": {
+            "px": 42
+          },
+          "window_drag": true
+        },
+        {
+          "id": "basecamp-body",
+          "type": "stack",
+          "children": [
+            {
+              "id": "basecamp-daypack",
+              "type": "block",
+              "content": {
+                "mod": "daypack"
+              }
+            },
+            {
+              "id": "basecamp-run",
+              "type": "block",
+              "content": {
+                "mod": "alp-runs",
+                "props": {
+                  "part": "list"
+                }
+              }
+            }
+          ],
+          "active": "basecamp-daypack"
+        }
+      ],
       "size": {
-        "px": 280
+        "px": 300
       },
-      "min": 200,
-      "max": 480,
+      "min": 220,
+      "max": 520,
+      "background": "chrome",
       "hidden": true
     }
   ],

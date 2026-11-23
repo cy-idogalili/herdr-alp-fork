@@ -1,17 +1,17 @@
 // The Herds canvas: the herds as one graph you can pan, zoom and rearrange, like a flow editor.
 // Each herd is a tree, its herdsman on top, members and agents below, agents under the sessions
 // that started them, and the herds side by side. The lines are painted paths, curved or stepped
-// (your pick), labelled as in the list. Drag the background to pan, drag a card to
+// (your pick), each labelled with how the two are linked. Drag the background to pan, drag a card to
 // move it (it stays where you put it), scroll to pan, and Cmd- or Ctrl-scroll to zoom.
 
 import { div, svg, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run } from "herdr";
 import { agentChildren, agentsByAge } from "./herds-data.js";
-import { RoleIcon, StatusMark, agentLine, branchOf, linkLine, linkTo, placeOf, statusOf } from "./herds-view.js";
+import { LinkButton, RoleIcon, StatusMark, agentLine, branchOf, linkLine, linkTo, placeOf, statusOf } from "./herds-view.js";
 import { ICONS, IconButton, Segmented, ago, formatTime } from "./ui.js";
 
-/** Card sizes on the canvas at 100%, as in the list. */
+/** Card sizes on the canvas at 100%. */
 const SESSION = { w: 240, h: 86 };
 const AGENT = { w: 180, h: 58 };
 
@@ -41,7 +41,7 @@ const STORE_KEY = "alpmeister.herds.canvas";
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
-/** Reads what the canvas kept from before: list or canvas, the line style, the moved cards. */
+/** Reads what the canvas kept from before: the line style and the moved cards. */
 function remembered() {
   try {
     return JSON.parse(localStorage.getItem(STORE_KEY) ?? "{}") ?? {};
@@ -115,14 +115,13 @@ function place(node, left, top, cards, lines) {
 }
 
 /**
- * The Herds canvas and everything it remembers: list or canvas, the line style, the pan and zoom,
+ * The Herds canvas and everything it remembers: the line style, the pan and zoom,
  * and the cards you moved (as offsets from where the layout puts them, so a moved card stays put
  * when herds come and go).
  */
 export class HerdsCanvas {
   constructor() {
     const kept = remembered();
-    this.mode = kept.mode === "canvas" ? "canvas" : "list";
     this.edges = EDGE_STYLES.some((style) => style.value === kept.edges) ? kept.edges : "curved";
     this.moved = kept.moved && typeof kept.moved === "object" ? kept.moved : {};
     this.pan = { x: 24, y: 24 };
@@ -141,17 +140,10 @@ export class HerdsCanvas {
   /** Keeps the choices and the moved cards for next time. */
   remember() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ mode: this.mode, edges: this.edges, moved: this.moved }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ edges: this.edges, moved: this.moved }));
     } catch (error) {
       console.log(`alpmeister: canvas not remembered: ${error}`);
     }
-  }
-
-  setMode(mode, cx) {
-    this.mode = mode;
-    if (mode !== "canvas") this.full = false;
-    this.remember();
-    cx.notify();
   }
 
   /** Fills the whole tab with the canvas, or puts it back in the Herds tab, then fits. */
@@ -213,20 +205,10 @@ export class HerdsCanvas {
   }
 
   /**
-   * The controls in the Herds card's title row: List or Canvas, and on the canvas the line style,
-   * zoom out and in, Fit and Reset layout.
+   * The controls in the Herds card's title row: the line style, zoom out and in, Fit, Reset layout
+   * and Full tab.
    */
   controls(t) {
-    const modes = Segmented(
-      "herds-mode",
-      [
-        { value: "list", label: "List", icon: ICONS.list, tooltip: "The herds as lists of cards" },
-        { value: "canvas", label: "Canvas", icon: ICONS.canvas, tooltip: "The herds as a graph to pan, zoom and rearrange" },
-      ],
-      this.mode,
-      (mode, cx) => this.setMode(mode, cx),
-    );
-    if (this.mode !== "canvas") return [modes];
     return [
       Segmented("herds-edges", EDGE_STYLES, this.edges, (edges, cx) => this.setEdges(edges, cx)),
       h_flex()
@@ -244,7 +226,6 @@ export class HerdsCanvas {
       this.full
         ? IconButton("herds-full", ICONS.exitFullTab, (cx) => this.setFull(false, cx), { tooltip: "Exit full tab" })
         : IconButton("herds-full", ICONS.fullTab, (cx) => this.setFull(true, cx), { tooltip: "Full tab: fill the whole tab with the canvas" }),
-      modes,
     ].filter(Boolean);
   }
 
@@ -390,6 +371,8 @@ export class HerdsCanvas {
     const title = agent ? agent.description : session.name;
     const second = agent ? this.agentWhen(agent) : placeOf(session, live);
     const branch = agent ? null : branchOf(session);
+    // A background session runs in no terminal: link it by hand to the tab that shows it.
+    const link = agent ? null : LinkButton(session, actions, "hc");
     const tooltip = agent
       ? `${agent.description}\n${agent.fork ? "fork of the session" : `${agent.type} agent`} · ${
           agent.background ? "in the background" : "in the foreground"
@@ -425,7 +408,7 @@ export class HerdsCanvas {
           .gap(6)
           .items_center()
           .min_w(0)
-          // Needs you is a red dot here, not the list's chip: the red border says it too, and the
+          // Needs you is a red dot here, not the Grazing cards' chip: the red border says it too, and the
           // chip would leave a small card no room for its name.
           .child(blocked ? div().size(7).mx(2).flex_none().rounded(4).bg(t.blocked).tooltip("Needs you") : StatusMark(t, status))
           .child(
@@ -443,14 +426,18 @@ export class HerdsCanvas {
             el.child(RoleIcon(t, `hc-role-${node.key}`, node.role, herdsman ? t.accent : undefined)),
           ),
       )
-      .when(!compact && (Boolean(second) || earlier > 0), (el) =>
+      .when(!compact && (Boolean(second) || earlier > 0 || Boolean(link)), (el) =>
         el.child(
           h_flex()
             .gap(6)
             .items_center()
             .min_w(0)
             .child(div().flex_1().min_w(0).truncate().text_size(text(agent ? 10 : 10.5)).text_color(t.dim).child(second ?? ""))
-            .when(earlier > 0, (row) => row.child(this.earlierToggle(t, session, earlier, open, actions, text(10), false))),
+            .when(earlier > 0, (row) => row.child(this.earlierToggle(t, session, earlier, open, actions, text(10), false)))
+            // The press stays on the button, so it doesn't start dragging the card.
+            .when(Boolean(link), (row) =>
+              row.child(div().flex_none().on_mouse_down("left", (_event, cx) => cx.stop_propagation()).child(link)),
+            ),
         ),
       )
       .when(!compact && Boolean(branch), (el) =>
@@ -467,7 +454,7 @@ export class HerdsCanvas {
       );
   }
 
-  /** How long an agent has run, or when it finished, as the list shows it. */
+  /** How long an agent has run, or when it finished. */
   agentWhen(agent) {
     const now = Date.now();
     if (agent.finished) return `done ${ago(now - (agent.lastAt ?? now))} ago`;
