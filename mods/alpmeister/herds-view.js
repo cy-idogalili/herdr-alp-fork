@@ -61,7 +61,7 @@ function LinkButton(session, actions, prefix) {
  * the tab's name), else in the background or in Claude Desktop. `space: false` leaves the
  * space out, for a row already under its space.
  */
-function placeOf(session, live, { space = true } = {}) {
+export function placeOf(session, live, { space = true } = {}) {
   const agent = live.get(session.terminal);
   if (agent) return space ? `${agent.space_name} / ${agent.title || agent.tab_name}` : agent.title || agent.tab_name;
   if (session.kind === "bg") return "background";
@@ -73,7 +73,7 @@ function placeOf(session, live, { space = true } = {}) {
  * A session's status: a background session's own state, else its terminal's live status from
  * Herdr, else what the registry last said.
  */
-function statusOf(session, live) {
+export function statusOf(session, live) {
   if (session.kind === "bg") return session.status;
   return live.get(session.terminal)?.status ?? session.status;
 }
@@ -83,7 +83,7 @@ function statusOf(session, live) {
  * the branch in its folder when the sessions were read. A tab showing a background session
  * sits in another folder, so it does not count.
  */
-function branchOf(session) {
+export function branchOf(session) {
   if (session.terminal && !session.shownIn) {
     const pane = panes().find((candidate) => candidate.terminal === session.terminal);
     if (pane?.branch) return pane.branch;
@@ -109,7 +109,7 @@ function BranchTag(t, branch) {
 }
 
 /** The status mark, as the agents list draws it: spinner, Needs you, done dot, idle ring. */
-function StatusMark(t, status) {
+export function StatusMark(t, status) {
   if (status === "working") return svg(SPINNER).size(12).flex_none().text_color(t.working).spin(900);
   if (status === "blocked") return Chip("Needs you", { color: t.blocked, fill: `${t.blocked}26` });
   if (status === "done") return div().size(7).mx(2).flex_none().rounded(4).bg(t.done);
@@ -124,7 +124,7 @@ function StatusMark(t, status) {
  * @param {string} [color] The tint; the herdsman's is the accent.
  * @returns {object}
  */
-function RoleIcon(t, id, role, color) {
+export function RoleIcon(t, id, role, color) {
   const { icon, tooltip } = ROLE_ICONS[role];
   return div().id(id).flex_none().text_color(color ?? t.muted).tooltip(tooltip).child(svg(icon).size(14));
 }
@@ -222,7 +222,7 @@ function TabPicker(t, sessionId, sessions, live, actions) {
 }
 
 /** How a line to a member session reads: solid with the message time, or dotted for a worktree. */
-function linkLine(link) {
+export function linkLine(link) {
   if (!link) return { label: "", dotted: false };
   return link.kind === "message"
     ? { label: `msg ${formatTime(link.at)}`, dotted: false }
@@ -230,7 +230,7 @@ function linkLine(link) {
 }
 
 /** How a line to an agent reads: its type, dotted while it runs in the background. */
-const agentLine = (agent) => ({ label: agent.type, dotted: agent.background });
+export const agentLine = (agent) => ({ label: agent.type, dotted: agent.background });
 
 /** A line down from the bar to one member or agent, solid or dotted, with its label. */
 function Connector(t, index, count, { label, dotted }) {
@@ -387,7 +387,7 @@ function EarlierToggle(t, session, count, open, actions) {
 }
 
 /** The latest link from the herdsman to a member: a message before a worktree. */
-function linkTo(herd, member) {
+export function linkTo(herd, member) {
   const from = herd.links.filter((link) => link.from === herd.herdsman.id && link.to === member.id);
   return from.find((link) => link.kind === "message") ?? from[0] ?? null;
 }
@@ -564,7 +564,9 @@ function GrazingCard(t, session, live, actions) {
 /**
  * The Herds tab. `model` is loadHerds()'s result, or null before the first load.
  * `actions`: `{ model, loading, picking, pick(sessionId|null, cx), link(sessionId, address|null, cx),
- * expandedAgents: Set<sessionId>, toggleAgents(sessionId, cx) }`.
+ * expandedAgents: Set<sessionId>, toggleAgents(sessionId, cx), canvas: HerdsCanvas, canvasHeight }`.
+ * `canvas` adds the List / Canvas switch; on Canvas the herds are drawn by it, `canvasHeight` tall,
+ * or `fullHeight` tall alone in the tab while `canvas.full`.
  */
 export function Herds(model, actions) {
   const t = theme();
@@ -575,6 +577,32 @@ export function Herds(model, actions) {
   const working = shown.filter((session) => statusOf(session, live) === "working").length;
   const blocked = shown.filter((session) => statusOf(session, live) === "blocked").length;
   const agentsWorking = shown.flatMap((session) => session.agents ?? []).filter((agent) => agent.status === "working").length;
+  const canvas = actions.canvas;
+  const onCanvas = canvas?.mode === "canvas" && herds.length > 0;
+  const name = (id) => model.sessions.find((session) => session.id === id)?.name ?? id;
+  // On the canvas, the links between members (not from the herdsman) are listed under it.
+  const others = herds.flatMap((herd) => herd.links.filter((link) => link.from !== herd.herdsman.id));
+  const summary = Chip(
+    `${shown.length} sessions · ${working} working · ${blocked} need you${
+      agentsWorking ? ` · ${agentsWorking} agents working` : ""
+    }`,
+    { color: t.dim },
+  );
+  // Full tab: the canvas alone, under one row of its title and controls.
+  if (onCanvas && canvas.full) {
+    return v_flex()
+      .gap(8)
+      .child(
+        h_flex()
+          .items_center()
+          .gap(8)
+          .child(div().text_size(12.5).font_semibold().text_color(t.foreground).child("Herds"))
+          .child(summary)
+          .child(div().flex_1())
+          .children(canvas.controls(t)),
+      )
+      .child(canvas.render(t, herds, live, actions, actions.fullHeight ?? 600));
+  }
   return v_flex()
     .gap(14)
     .child(
@@ -582,14 +610,31 @@ export function Herds(model, actions) {
         "herds",
         "Herds",
         [
-          Chip(
-            `${shown.length} sessions · ${working} working · ${blocked} need you${
-              agentsWorking ? ` · ${agentsWorking} agents working` : ""
-            }`,
-            { color: t.dim },
-          ),
+          summary,
+          ...(canvas ? canvas.controls(t) : []),
         ],
-        herds.length
+        onCanvas
+          ? v_flex()
+              .gap(8)
+              .child(canvas.render(t, herds, live, actions, actions.canvasHeight ?? 520))
+              .when(others.length > 0, (el) =>
+                el.child(
+                  v_flex()
+                    .gap(2)
+                    .text_size(10.5)
+                    .text_color(t.dim)
+                    .children(
+                      others.map((link) =>
+                        div().child(
+                          `${name(link.from)} → ${name(link.to)} · ${
+                            link.kind === "message" ? `msg ${formatTime(link.at)}` : "worktree"
+                          }`,
+                        ),
+                      ),
+                    ),
+                ),
+              )
+          : herds.length
           ? // The herds side by side, a divider between them; a wide row scrolls sideways.
             h_flex()
               .id("herds-row")
