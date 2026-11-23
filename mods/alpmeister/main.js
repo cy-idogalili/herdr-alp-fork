@@ -32,6 +32,7 @@ import { FocusStore, pickId } from "./focus.js";
 import { FocusList } from "./focus-list.js";
 import { loadHerds, saveTabLink, sessionsDir } from "./herds-data.js";
 import { Herds } from "./herds-view.js";
+import { HerdsCanvas } from "./herds-canvas.js";
 import { InFlight } from "./in-flight.js";
 import { MyIssues, MyPrs, Reviews } from "./my-day.js";
 import { Spotlight } from "./spotlight.js";
@@ -93,6 +94,7 @@ export default class Alpmeister extends View {
     this.mineIterationOnly = true;
     this.expandedGroups = new Set();
     this.width = 1200;
+    this.height = 800;
     this.cacheSnapshot = null;
     // `props.tab` opens a copy on that tab: tab.new {mod: "alpmeister", props: {tab: "herds"}}.
     this.tab = Object.values(TABS).includes(props()?.tab) ? props().tab : rememberedTab();
@@ -104,6 +106,7 @@ export default class Alpmeister extends View {
     this.expandedAgents = new Set();
     this.herdsFailure = null;
     this.picking = null;
+    this.herdsCanvas = new HerdsCanvas();
     this.focus = new FocusStore();
     this.focusStamp = shared(FOCUS_STAMP_KEY) ?? null;
     this.input = InputState.new({ placeholder: "Add a todo and press Enter" });
@@ -727,7 +730,9 @@ export default class Alpmeister extends View {
     const wide = this.width >= WIDE;
     const config = this.config;
     const model = this.model;
-    let content = v_flex().w_full().p(18).gap(14).child(this.header(t));
+    // The Herds canvas in full tab hides the header too: the canvas takes the whole tab.
+    const fullCanvas = this.tab === TABS.herds && this.herdsCanvas.full && this.herdsCanvas.mode === "canvas";
+    let content = v_flex().w_full().p(18).gap(14).when(!fullCanvas, (el) => el.child(this.header(t)));
     if (this.tab === TABS.settings) {
       content = content.child(
         this.settings.render(cx, {
@@ -753,6 +758,11 @@ export default class Alpmeister extends View {
           link: (sessionId, address, cx) => this.linkTab(sessionId, address, cx),
           expandedAgents: this.expandedAgents,
           toggleAgents: (sessionId, cx) => this.toggleAgents(sessionId, cx),
+          canvas: this.herdsCanvas,
+          // In the Herds tab the canvas takes 30% of the tab; Full tab gives it all the room
+          // under its row of controls (the tab's padding, the row, the gap).
+          canvasHeight: Math.max(220, Math.round(this.height * 0.3)),
+          fullHeight: Math.max(300, this.height - 36 - 30 - 8),
         }),
       );
     } else {
@@ -781,8 +791,9 @@ export default class Alpmeister extends View {
       .bg(t.canvas)
       .overflow_y_scrollbar()
       .on_size_change((size, cx) => {
-        if (Math.abs(size.width - this.width) > 1) {
+        if (Math.abs(size.width - this.width) > 1 || Math.abs(size.height - this.height) > 1) {
           this.width = size.width;
+          this.height = size.height;
           cx.notify();
         }
       })

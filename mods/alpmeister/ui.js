@@ -206,6 +206,16 @@ export function TextButton(id, label, onClick, { icon, tooltip } = {}) {
 /** Icons this mod draws: its own, Herdr's shipped pin and close, and the Claude program icon. */
 export const ICONS = {
   github: "mods/alpmeister/github.svg",
+  zoomIn: "mods/alpmeister/zoom-in.svg",
+  zoomOut: "mods/alpmeister/zoom-out.svg",
+  fit: "mods/alpmeister/fit.svg",
+  fullTab: "mods/alpmeister/full-tab.svg",
+  exitFullTab: "mods/alpmeister/exit-full-tab.svg",
+  resetLayout: "mods/alpmeister/reset-layout.svg",
+  list: "mods/alpmeister/list.svg",
+  canvas: "mods/alpmeister/canvas.svg",
+  lineCurved: "mods/alpmeister/line-curved.svg",
+  lineStep: "mods/alpmeister/line-step.svg",
   pin: "mods/workspace-chrome/pin.svg",
   close: "mods/workspace-chrome/x.svg",
   claude: "icons/claude.svg",
@@ -234,6 +244,51 @@ export function IconButton(id, icon, onClick, { tooltip, color, picture = false 
     })
     .when(Boolean(tooltip), (el) => el.tooltip(tooltip))
     .child(picture ? image(icon).w(13).h(13) : svg(icon).size(13));
+}
+
+/**
+ * A small switch of options side by side, the picked one highlighted, as the tab switch draws
+ * its pills. An option shows its icon, its label, or both, and its tooltip on hover.
+ * @param {string} id A unique element id.
+ * @param {{ value: string, label?: string, icon?: string, tooltip?: string }[]} options
+ * @param {string} value The picked option's value.
+ * @param {(value: string, cx: object) => void} onPick
+ * @returns {object}
+ */
+export function Segmented(id, options, value, onPick) {
+  const t = theme();
+  return h_flex()
+    .id(id)
+    .flex_none()
+    .gap(2)
+    .p(2)
+    .rounded(7)
+    .bg(t.canvas)
+    .border_1()
+    .border_color(t.border)
+    .children(
+      options.map((option) =>
+        h_flex()
+          .id(`${id}-${option.value}`)
+          .h(20)
+          .px(option.label ? 8 : 5)
+          .gap(5)
+          .items_center()
+          .rounded(5)
+          .text_size(10.5)
+          .cursor_pointer()
+          .bg(option.value === value ? t.selected : t.canvas)
+          .text_color(option.value === value ? t.foreground : t.dim)
+          .hover((style) => style.text_color(t.foreground))
+          .on_click((_event, cx) => {
+            cx.stop_propagation();
+            if (option.value !== value) onPick(option.value, cx);
+          })
+          .when(Boolean(option.tooltip), (el) => el.tooltip(option.tooltip))
+          .when(Boolean(option.icon), (el) => el.child(svg(option.icon).size(13).flex_none()))
+          .when(Boolean(option.label), (el) => el.child(option.label)),
+      ),
+    );
 }
 
 /** A filter toggle: a checkbox-like dot and its label, in the accent color while on. */
