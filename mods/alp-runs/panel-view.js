@@ -6,8 +6,16 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { layout, notify, run, theme, window } from "herdr";
 import { findWorkspace, loadEntries } from "./config.js";
-import { closeAndWait, closeSession, forgetClosedSessions, sessions, startedAnswers, stopSession } from "./runner.js";
-import { find, openRunTab, outputShows, PANEL_ID, selectedAddress, showSession } from "./panel.js";
+import {
+  closeAndWait,
+  closeSession,
+  forgetClosedSessions,
+  LIST_GRACE_MS,
+  sessions,
+  startedAnswers,
+  stopSession,
+} from "./runner.js";
+import { find, openRunTab, outputShows, PANEL_ID, selectedAddress, selectedAt, showSession } from "./panel.js";
 import { launch, sessionMark } from "./list-view.js";
 
 const STOP_ICON = "mods/alp-runs/stop.svg";
@@ -72,7 +80,9 @@ export class BarPart {
   /** Keeps the output block on the selected session, or on another when it is gone. */
   keepOutput(cx, list) {
     const selected = selectedAddress();
-    const exists = list.some((session) => session.address === selected);
+    // A run selected a moment ago may not be in Herdr's terminal list yet.
+    const fresh = Date.now() - selectedAt() < LIST_GRACE_MS;
+    const exists = fresh || list.some((session) => session.address === selected);
     const want = exists ? selected : (list[0]?.address ?? null);
     if (outputShows(want) && want === selected) return;
     if (Date.now() - this.fixAt < 1000) return;

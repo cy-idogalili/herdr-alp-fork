@@ -16,6 +16,7 @@ export const LABEL = {
 const STARTED_KEY = "alp.runs.started";
 const POSIX_SHELLS = new Set(["zsh", "bash", "sh", "dash", "ksh"]);
 const MAX_DEPTH = 8;
+export const LIST_GRACE_MS = 5000;
 
 let shellPath = null;
 
@@ -221,12 +222,19 @@ export async function closeAndWait(address) {
   }
 }
 
-/** Resolves when a session's command exits; rejects when its terminal goes first. */
+/**
+ * Resolves when a session's command exits; rejects when its terminal goes first. Herdr's live
+ * terminal list shows a new terminal a moment after `hc run` returns, so a terminal not seen yet
+ * gets `LIST_GRACE_MS` to appear.
+ */
 async function waitForExit(address) {
+  const started = Date.now();
+  let seen = false;
   for (;;) {
     const session = sessions().find((candidate) => candidate.address === address);
-    if (!session) throw new Error("its terminal was closed");
-    if (!session.running) return session.exit;
+    if (session) seen = true;
+    else if (seen || Date.now() - started > LIST_GRACE_MS) throw new Error("its terminal was closed");
+    if (session && !session.running) return session.exit;
     await exec("sleep", ["0.5"]);
   }
 }

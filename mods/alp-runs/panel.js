@@ -8,6 +8,7 @@ export const PANEL_ID = "bottom-panel";
 const BODY_ID = "runs-body";
 const OUTPUT_ID = "run-output";
 const SELECTED_KEY = "alp.runs.selected";
+const SELECTED_AT_KEY = "alp.runs.selectedAt";
 const BASECAMP_ID = "basecamp";
 const BASECAMP_STACK = "basecamp-body";
 const RUN_TAB = "basecamp-run";
@@ -30,6 +31,9 @@ export function find(node, id) {
 /** The selected session's terminal address, if any. */
 export const selectedAddress = () => shared(SELECTED_KEY) ?? null;
 
+/** When the current selection was made, in ms. */
+export const selectedAt = () => shared(SELECTED_AT_KEY) ?? 0;
+
 /** What the output block shows for a selection. */
 const contentFor = (address) => (address ? { terminal: address } : { mod: "alp-runs", props: { part: "empty" } });
 
@@ -46,7 +50,10 @@ export function outputShows(address) {
  * @param {{ reveal?: boolean }} options `reveal`: also show the bottom panel (default true).
  */
 export function showSession(address, { reveal = true } = {}) {
-  if (selectedAddress() !== address) setShared(SELECTED_KEY, address);
+  if (selectedAddress() !== address) {
+    setShared(SELECTED_KEY, address);
+    setShared(SELECTED_AT_KEY, Date.now());
+  }
   if (!outputShows(address)) {
     const tree = JSON.parse(JSON.stringify(layout()));
     const body = find(tree, BODY_ID);

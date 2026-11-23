@@ -1,6 +1,7 @@
 // Basecamp's Run tab: the focused workspace's launch configs, tasks and saved commands, each with
 // a play button. A row whose entry has a session shows its state and selects it in the bottom
-// panel. Entries that need VS Code are folded away at the end, with the reason on each.
+// panel. Entries that need VS Code are folded away at the end, with the reason on each. Entries
+// the person hides fold away too, remembered per repository in this copy's localStorage.
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState } from "gpui-base";
@@ -22,6 +23,10 @@ import { neededInputs, sessionFor, startEntry } from "./runner.js";
 import { showSession } from "./panel.js";
 
 export const LAUNCH_KEY = "alp.runs.launch";
+export const VISIBILITY_KEY = "alp.runs.visibility";
+const HIDDEN_STORAGE = "hidden";
+const VISIBILITY_STORAGE = "visibilityAt";
+const VISIBILITY_QUEUE_LIMIT = 50;
 export const STAMP_KEY = "alp.runs.stamp";
 export const ANSWERS_KEY = "alp.runs.inputs";
 const PLAY_ICON = "mods/alp-runs/play.svg";
@@ -56,6 +61,25 @@ function candidateFolders() {
   return [...new Set(folders.filter(Boolean))];
 }
 
+/** A number kept in localStorage, or 0 when it is absent or can't be read. */
+function readNumber(name) {
+  try {
+    return Number(localStorage.getItem(name) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** The hidden entries' keys by repository, from localStorage; empty when it can't be read. */
+function readHidden() {
+  try {
+    const value = JSON.parse(localStorage.getItem(HIDDEN_STORAGE) ?? "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * The glyph and color for a session's state.
  * @param {object} t The theme.
@@ -67,6 +91,22 @@ export function sessionMark(t, session) {
   if (session.running) return { glyph: "●", color: t.working };
   return session.exit === 0 ? { glyph: "✓", color: t.done } : { glyph: "✗", color: t.blocked };
 }
+
+/**
+ * The input dialog's height: a field per promptString, a chip row per pickString option (long
+ * labels wrap one to a row), at most 640px.
+ * @param {object[]} inputs The input definitions.
+ * @returns {number}
+ */
+const dialogHeight = (inputs) =>
+  Math.min(
+    640,
+    150 +
+      inputs.reduce(
+        (sum, input) => sum + (input.type === "pickString" ? 34 + (input.options ?? []).length * 40 : 78),
+        0,
+      ),
+  );
 
 /**
  * Starts an entry, asking for its inputs first when it has any, and shows its session.
@@ -83,7 +123,7 @@ export async function launch(entry, catalog, workspace, answers) {
       mod: "alp-runs",
       kind: "dialog",
       width: 440,
-      height: 150 + inputs.length * 78,
+      height: dialogHeight(inputs),
       props: { part: "input", key: entry.key, root: workspace.root },
     });
     return;
@@ -105,6 +145,9 @@ export class ListPart {
     this.launchId = shared(LAUNCH_KEY)?.id ?? null;
     this.pending = new Set();
     this.showBlocked = false;
+    this.showHidden = false;
+    this.hidden = readHidden();
+    this.visibilityAt = readNumber(VISIBILITY_STORAGE);
     this.watchToken = 0;
     this.filter = InputState.new({ placeholder: "Filter" });
     this.filter.on("change", (_event, cx) => cx.notify());
@@ -122,6 +165,7 @@ export class ListPart {
       this.stamp = stamp;
       this.load(cx, force);
     }
+    this.applyVisibilityRequests();
     const request = shared(LAUNCH_KEY);
     if (request?.id && request.id !== this.launchId) {
       this.launchId = request.id;
@@ -182,8 +226,67 @@ export class ListPart {
     cx.notify();
   }
 
+  /** The keys of the entries hidden in this workspace's repository (a worktree shares its main checkout's). */
+  hiddenKeys() {
+    return new Set(this.workspace ? (this.hidden[this.workspace.mainRoot] ?? []) : []);
+  }
+
+  /**
+   * Applies the hide and show requests the menu queued since the last one applied. The queue
+   * holds them while this copy isn't rendering, such as while Basecamp is hidden.
+   */
+  applyVisibilityRequests() {
+    const queue = shared(VISIBILITY_KEY);
+    if (!Array.isArray(queue)) return;
+    const pending = queue.filter((request) => request.at > this.visibilityAt);
+    if (!pending.length) return;
+    pending.forEach((request) => this.setHidden(request.repo, request.key, request.hidden));
+    this.visibilityAt = Math.max(...pending.map((request) => request.at));
+    try {
+      localStorage.setItem(VISIBILITY_STORAGE, String(this.visibilityAt));
+    } catch (error) {
+      console.log(`alp-runs: hide requests not marked as applied: ${error}`);
+    }
+  }
+
+  /** Hides or shows an entry in a repository, and remembers it. */
+  setHidden(repo, key, hidden) {
+    const keys = new Set(this.hidden[repo] ?? []);
+    if (hidden) keys.add(key);
+    else keys.delete(key);
+    this.hidden = { ...this.hidden, [repo]: [...keys] };
+    if (!keys.size) delete this.hidden[repo];
+    try {
+      localStorage.setItem(HIDDEN_STORAGE, JSON.stringify(this.hidden));
+    } catch (error) {
+      console.log(`alp-runs: hidden entries not saved: ${error}`);
+    }
+  }
+
+  /** A fold at the end of the list: a toggle with a count, then its rows while open. */
+  fold(t, id, label, rows, open, onToggle) {
+    if (!rows.length) return [];
+    const toggle = h_flex()
+      .id(id)
+      .px(10)
+      .pt(12)
+      .gap(6)
+      .items_center()
+      .text_size(11)
+      .text_color(t.dim)
+      .cursor_pointer()
+      .hover((style) => style.text_color(t.muted))
+      .on_click((_event, cx) => {
+        onToggle();
+        cx.notify();
+      })
+      .child(open ? "▾" : "▸")
+      .child(`${rows.length} ${label}`);
+    return [toggle, ...(open ? rows : [])];
+  }
+
   /** One entry: its session's state, its name, and its play button. */
-  row(t, entry) {
+  row(t, entry, hidden = false) {
     const session = this.workspace ? sessionFor(entry.key, this.workspace.root) : null;
     const mark = sessionMark(t, session);
     const starting = this.pending.has(entry.key);
@@ -194,13 +297,13 @@ export class ListPart {
     };
     const menu = (_event, cx) => {
       cx.stop_propagation();
-      if (entry.kind !== "saved" && entry.kind !== "task") return;
+      const count = 1 + (entry.kind === "saved" ? 2 : entry.kind === "task" ? 1 : 0);
       openOverlay({
         mod: "alp-runs",
         kind: "popup",
         width: 210,
-        height: entry.kind === "saved" ? 84 : 48,
-        props: { part: "menu", key: entry.key, root: this.workspace.root },
+        height: 12 + count * 34,
+        props: { part: "menu", key: entry.key, root: this.workspace.root, repo: this.workspace.mainRoot, hidden },
       });
     };
     return h_flex()
@@ -296,40 +399,44 @@ export class ListPart {
     const query = this.filter.value().trim().toLowerCase();
     const matches = (entry) => !query || entry.name.toLowerCase().includes(query);
     const catalog = this.catalog;
-    const blocked = catalog
-      ? [...catalog.launch, ...catalog.tasks].filter((entry) => entry.unsupported && matches(entry))
-      : [];
+    const hiddenKeys = this.hiddenKeys();
+    const all = catalog ? [...catalog.launch, ...catalog.tasks, ...catalog.saved] : [];
+    const blocked = all.filter((entry) => entry.unsupported && !hiddenKeys.has(entry.key) && matches(entry));
+    const hidden = all.filter((entry) => hiddenKeys.has(entry.key) && matches(entry));
     const items = [];
     if (catalog) {
       for (const section of SECTIONS) {
-        const rows = catalog[section.id].filter((entry) => !entry.unsupported && matches(entry));
+        const rows = catalog[section.id].filter(
+          (entry) => !entry.unsupported && !hiddenKeys.has(entry.key) && matches(entry),
+        );
         if (!rows.length && section.id !== "saved") continue;
         items.push(this.heading(t, section));
         if (!rows.length)
           items.push(div().px(10).py(4).text_size(11.5).text_color(t.dim).child("Save a command with +."));
         rows.forEach((entry) => items.push(this.row(t, entry)));
       }
-      if (blocked.length) {
-        items.push(
-          h_flex()
-            .id("run-blocked")
-            .px(10)
-            .pt(12)
-            .gap(6)
-            .items_center()
-            .text_size(11)
-            .text_color(t.dim)
-            .cursor_pointer()
-            .hover((style) => style.text_color(t.muted))
-            .on_click((_event, cx) => {
-              this.showBlocked = !this.showBlocked;
-              cx.notify();
-            })
-            .child(this.showBlocked ? "▾" : "▸")
-            .child(`${blocked.length} need VS Code`),
-        );
-        if (this.showBlocked) blocked.forEach((entry) => items.push(this.row(t, entry)));
-      }
+      items.push(
+        ...this.fold(
+          t,
+          "run-blocked",
+          "need VS Code",
+          blocked.map((entry) => this.row(t, entry)),
+          this.showBlocked,
+          () => {
+            this.showBlocked = !this.showBlocked;
+          },
+        ),
+        ...this.fold(
+          t,
+          "run-hidden",
+          "hidden",
+          hidden.map((entry) => this.row(t, entry, true)),
+          this.showHidden,
+          () => {
+            this.showHidden = !this.showHidden;
+          },
+        ),
+      );
     }
     return v_flex()
       .id("alp-runs-list")
@@ -384,6 +491,14 @@ export class ListPart {
       .child(
         v_flex().id("alp-runs-scroll").flex_1().min_h(0).overflow_y_scrollbar().child(v_flex().pb(10).children(items)),
       );
+  }
+
+  /** Queues a request for the list to hide or show an entry in a repository. */
+  static setVisibility(repo, key, hidden) {
+    const queue = Array.isArray(shared(VISIBILITY_KEY)) ? shared(VISIBILITY_KEY) : [];
+    const last = queue.at(-1)?.at ?? 0;
+    const request = { at: Math.max(Date.now(), last + 1), repo, key, hidden };
+    setShared(VISIBILITY_KEY, [...queue, request].slice(-VISIBILITY_QUEUE_LIMIT));
   }
 
   /** Records the answers as the next defaults, then asks the list to start the entry. */

@@ -334,7 +334,7 @@ export class MenuPart {
 
   render() {
     const t = theme();
-    const { key, root, overlay } = props();
+    const { key, root, repo, hidden, overlay } = props();
     const name = key.replace(/^[a-z]+:/, "");
     const item = (id, label, action) =>
       div()
@@ -347,7 +347,7 @@ export class MenuPart {
         .hover((style) => style.bg(t.hover))
         .on_click(action)
         .child(label);
-    const items = key.startsWith("saved:")
+    const kindItems = key.startsWith("saved:")
       ? [
           item("menu-edit", "Edit…", () => {
             openOverlay({
@@ -361,7 +361,14 @@ export class MenuPart {
           }),
           item("menu-delete", "Delete", (_event, cx) => this.remove(cx, name)),
         ]
-      : [item("menu-save", "Save to my commands…", (_event, cx) => this.saveTask(cx))];
+      : key.startsWith("task:")
+        ? [item("menu-save", "Save to my commands…", (_event, cx) => this.saveTask(cx))]
+        : [];
+    const visibility = item(hidden ? "menu-show" : "menu-hide", hidden ? "Show again" : "Hide", () => {
+      ListPart.setVisibility(repo, key, !hidden);
+      closeOverlay(overlay);
+    });
+    const items = [...kindItems, visibility];
     return v_flex().id("alp-runs-menu").size_full().p(4).bg(t.popover).text_color(t.foreground).children(items);
   }
 }
