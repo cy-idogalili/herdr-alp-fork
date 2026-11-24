@@ -3,9 +3,14 @@
 
 import { div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, theme } from "herdr";
+import { exec, notify, run, spaces, theme } from "herdr";
 
 const DAY = 86400000;
+const SESSION_STATUS_LABELS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
+
+/** The Claude button's tooltip for a filled prompt. */
+export const claudeTooltip = (prompt) =>
+  `Open a Claude tab running ${prompt}. Middle-click opens it in the background.`;
 
 /** Opens a URL in the default browser. */
 export const openUrl = (url) => exec("open", [url]).catch((error) => console.log(`alpmeister: open failed: ${error}`));
@@ -218,14 +223,18 @@ export const ICONS = {
   close: "mods/workspace-chrome/x.svg",
   edit: "mods/alpmeister/pencil.svg",
   claude: "icons/claude.svg",
+  terminal: "mods/workspace-chrome/terminal.svg",
+  iteration: "mods/alpmeister/iteration.svg",
+  milestone: "mods/alpmeister/milestone.svg",
   settings: "mods/workspace-chrome/settings.svg",
 };
 
 /**
  * A 22px icon button with a tooltip. `color` tints a one-color icon; `picture` draws a
- * full-color icon as it is, such as a program's.
+ * full-color icon as it is, such as a program's. `onMiddleClick`, when given, runs on a
+ * middle-button release over the button.
  */
-export function IconButton(id, icon, onClick, { tooltip, color, picture = false } = {}) {
+export function IconButton(id, icon, onClick, { tooltip, color, picture = false, onMiddleClick } = {}) {
   const t = theme();
   return h_flex()
     .id(id)
@@ -241,8 +250,80 @@ export function IconButton(id, icon, onClick, { tooltip, color, picture = false 
       cx.stop_propagation();
       onClick(cx);
     })
+    .when(Boolean(onMiddleClick), (el) =>
+      el.on_mouse_up("middle", (_event, cx) => {
+        cx.stop_propagation();
+        onMiddleClick(cx);
+      }),
+    )
     .when(Boolean(tooltip), (el) => el.tooltip(tooltip))
     .child(picture ? image(icon).w(13).h(13) : svg(icon).size(13));
+}
+
+/** The name a Claude tab opened on an issue or PR carries: `repo#12`, or `PR repo#12`. */
+export const sessionName = (item) => `${item.kind === "pr" ? "PR " : ""}${shortRepo(item.repo)}#${item.number}`;
+
+/**
+ * Tells the person a Claude tab opened in the background. A click on the notification shows the
+ * tab. Background tabs go last in their space, so the tab is the last one with the session name.
+ * @param {{ kind: string, repo: string, number: number, title?: string }} item The issue or PR.
+ * @param {string | undefined} spaceId The space the tab opened in.
+ */
+export function announceBackgroundTab(item, spaceId) {
+  const name = sessionName(item);
+  const space = spaces().find((candidate) => candidate.id === spaceId);
+  const tab = space?.tabs.filter((candidate) => candidate.name === name).at(-1);
+  notify({
+    title: `Claude tab ${name} opened in the background`,
+    ...(item.title ? { body: item.title } : {}),
+    level: "info",
+    icon: "icons/claude.svg",
+    ...(tab ? { action: { name: "tab.select", args: { id: tab.id } } } : {}),
+  });
+}
+
+/**
+ * The open tab that carries an issue's or PR's session name, and its space.
+ * @param {{ kind: string, repo?: string, number?: number }} item The focus item.
+ * @returns {{ space: object, tab: object } | null} The first such tab, or null when none is open.
+ */
+export function sessionTab(item) {
+  if (item.number == null || !item.repo) return null;
+  const name = sessionName(item);
+  for (const space of spaces()) {
+    const tab = space.tabs.find((candidate) => candidate.named && candidate.name === name);
+    if (tab) return { space, tab };
+  }
+  return null;
+}
+
+/**
+ * A terminal icon in the color of a Claude tab's agent status. A click shows that tab.
+ * @param {string} id A unique element id.
+ * @param {{ space: object, tab: object }} session The tab and its space, from `sessionTab`.
+ * @returns {object} The button.
+ */
+export function SessionButton(id, { space, tab }) {
+  const t = theme();
+  const colors = { working: t.working, blocked: t.blocked, done: t.done };
+  const status = SESSION_STATUS_LABELS[tab.status] ?? "open";
+  return h_flex()
+    .id(id)
+    .flex_none()
+    .size(22)
+    .items_center()
+    .justify_center()
+    .rounded(5)
+    .cursor_pointer()
+    .hover((style) => style.bg(t.hover))
+    .tooltip(`Claude tab ${tab.name} in ${space.name}: ${status}. Click to show it.`)
+    .on_click((_event, cx) => {
+      cx.stop_propagation();
+      run("space.select", { id: space.id });
+      run("tab.select", { id: tab.id });
+    })
+    .text_color(colors[tab.status] ?? t.dim)
+    .child(svg(ICONS.terminal).size(13));
 }
 
 /**

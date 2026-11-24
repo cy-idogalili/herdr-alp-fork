@@ -27,13 +27,17 @@
         "statusField": "Status",
         "iterationField": "Iteration"
       },
-      "statuses": ["New", "Todo", "Dev Design", "In Development", "Development QA", "In Review", "Done", "On Hold"],
-      "notStarted": ["New", "Todo"],
+      "statuses": ["Backlog", "Todo", "In Progress", "In Review", "QA", "Done", "On Hold"],
+      "notStarted": ["Backlog", "Todo"],
       "inFlight": {
-        "statuses": ["Dev Design", "In Development", "Development QA", "In Review"],
-        "excludeTypes": ["Test", "Test Plan"]
+        "statuses": ["In Progress", "In Review", "QA"],
+        "excludeTypes": ["Epic"]
       },
-      "mineHidden": ["New", "Done", "On Hold"],
+      "mineHidden": ["Backlog", "Done", "On Hold"],
+      "boardView": {
+        "query": "type:Task,Bug,Story iteration:@current,@previous",
+        "statuses": ["Todo", "In Progress", "In Review", "QA", "Done"]
+      },
       "queries": {
         "triage": "is:issue is:open type:Bug label:triage"
       },

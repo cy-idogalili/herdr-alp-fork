@@ -5,7 +5,21 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, Input } from "gpui-base";
 import { theme } from "herdr";
 import { daysSinceAdded } from "./focus.js";
-import { Card, Chip, ICONS, IconButton, NeedsYou, Note, fillPrompt, openUrl, shortRepo, statusColor } from "./ui.js";
+import {
+  Card,
+  Chip,
+  ICONS,
+  IconButton,
+  NeedsYou,
+  Note,
+  SessionButton,
+  claudeTooltip,
+  fillPrompt,
+  openUrl,
+  sessionTab,
+  shortRepo,
+  statusColor,
+} from "./ui.js";
 
 // The item types in the order the Daypack lists them, each under its own heading.
 const SECTIONS = [
@@ -110,6 +124,7 @@ function FocusItem(item, actions) {
   const command = item.kind === "todo" ? "" : actions.command(item.kind);
   const isTodo = item.kind === "todo";
   const editing = isTodo && actions.edit.id === item.id;
+  const session = isTodo ? null : sessionTab(item);
   return h_flex()
     .id(`fc-${item.id}`)
     .w_full()
@@ -160,11 +175,13 @@ function FocusItem(item, actions) {
         }),
       ),
     )
+    .when(Boolean(session), (el) => el.child(SessionButton(`fc-session-${item.id}`, session)))
     .when(Boolean(command), (el) =>
       el.child(
         IconButton(`fc-go-${item.id}`, ICONS.claude, () => actions.launch(item), {
           picture: true,
-          tooltip: `Open a Claude tab running ${fillPrompt(command, item)}`,
+          tooltip: claudeTooltip(fillPrompt(command, item)),
+          onMiddleClick: () => actions.launch(item, { background: true }),
         }),
       ),
     )
@@ -175,7 +192,7 @@ function FocusItem(item, actions) {
 }
 
 /**
- * The focus card. `actions`: `{ toggle(id, cx), remove(id, cx), launch(item), command(kind), edit }`,
+ * The focus card. `actions`: `{ toggle(id, cx), remove(id, cx), launch(item, options?), command(kind), edit }`,
  * where `command` is the configured Claude command for that kind, or "" when none is set, and
  * `edit` is `{ id, input, start(item, cx), cancel(cx) }` for the todo being edited.
  * `input` is the todo field's InputState.

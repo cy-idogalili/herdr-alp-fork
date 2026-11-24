@@ -68,7 +68,7 @@ query($reviewQuery: String!, $mineQuery: String!, $myPrsQuery: String!) {
     issueCount
     nodes {
       ... on PullRequest {
-        number title url updatedAt
+        number title url updatedAt reviewDecision
         repository { nameWithOwner }
         author { login }
         ${CHECKS}
@@ -172,6 +172,142 @@ query(
       }
     }
   }
+}`;
+
+/**
+ * One page of a board's items that match a filter, in the board's own filter syntax, for the
+ * Board tab, with the ids its moves need: the board's, its Status options and its iterations.
+ * Variables: projectOwner, projectNumber, statusField, iterationField, filter, after.
+ */
+export const BOARD_VIEW_PAGE = `
+query(
+  $projectOwner: String!, $projectNumber: Int!, $statusField: String!, $iterationField: String!,
+  $filter: String!, $after: String
+) {
+  owner: repositoryOwner(login: $projectOwner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $projectNumber) {
+        id
+        statusMeta: field(name: $statusField) {
+          ... on ProjectV2SingleSelectField { id options { id name } }
+        }
+        iterationMeta: field(name: $iterationField) {
+          ... on ProjectV2IterationField {
+            id
+            configuration {
+              iterations { id title startDate duration }
+              completedIterations { id title startDate duration }
+            }
+          }
+        }
+        items(first: 100, after: $after, query: $filter) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id
+            status: fieldValueByName(name: $statusField) { ${STATUS_VALUE} }
+            iteration: fieldValueByName(name: $iterationField) {
+              ... on ProjectV2ItemFieldIterationValue { title iterationId }
+            }
+            content {
+              __typename
+              ... on Issue {
+                id number title url state
+                issueType { name }
+                milestone { id title }
+                repository { nameWithOwner }
+                assignees(first: 10) { nodes { login avatarUrl(size: 64) } }
+                closedByPullRequestsReferences(first: 3, includeClosedPrs: false) {
+                  nodes { number url isDraft reviewDecision }
+                }
+              }
+              ... on PullRequest {
+                id number title url state isDraft reviewDecision
+                milestone { id title }
+                repository { nameWithOwner }
+                assignees(first: 10) { nodes { login avatarUrl(size: 64) } }
+              }
+              ... on DraftIssue { title assignees(first: 10) { nodes { login avatarUrl(size: 64) } } }
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+/** A repository's open milestones, soonest due first, for the Board's menu. Variables: owner, name. */
+export const OPEN_MILESTONES = `
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    milestones(states: OPEN, first: 50, orderBy: { field: DUE_DATE, direction: ASC }) {
+      nodes { id title dueOn }
+    }
+  }
+}`;
+
+/** Sets a board item's single-select field. Variables: project, item, field, option. */
+export const SET_BOARD_OPTION = `
+mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+  updateProjectV2ItemFieldValue(
+    input: { projectId: $project, itemId: $item, fieldId: $field, value: { singleSelectOptionId: $option } }
+  ) { projectV2Item { id } }
+}`;
+
+/** Sets a board item's iteration. Variables: project, item, field, iteration. */
+export const SET_BOARD_ITERATION = `
+mutation($project: ID!, $item: ID!, $field: ID!, $iteration: String!) {
+  updateProjectV2ItemFieldValue(
+    input: { projectId: $project, itemId: $item, fieldId: $field, value: { iterationId: $iteration } }
+  ) { projectV2Item { id } }
+}`;
+
+/** Moves a board item to just after another one. Variables: project, item, after. */
+export const MOVE_BOARD_ITEM_AFTER = `
+mutation($project: ID!, $item: ID!, $after: ID!) {
+  updateProjectV2ItemPosition(input: { projectId: $project, itemId: $item, afterId: $after }) {
+    items(first: 1) { totalCount }
+  }
+}`;
+
+/** Moves a board item to the top of the board. Variables: project, item. */
+export const MOVE_BOARD_ITEM_FIRST = `
+mutation($project: ID!, $item: ID!) {
+  updateProjectV2ItemPosition(input: { projectId: $project, itemId: $item }) {
+    items(first: 1) { totalCount }
+  }
+}`;
+
+/** Clears a board item's field. Variables: project, item, field. */
+export const CLEAR_BOARD_FIELD = `
+mutation($project: ID!, $item: ID!, $field: ID!) {
+  clearProjectV2ItemFieldValue(input: { projectId: $project, itemId: $item, fieldId: $field }) {
+    projectV2Item { id }
+  }
+}`;
+
+/** Sets an issue's milestone. Variables: issue, milestone. */
+export const SET_ISSUE_MILESTONE = `
+mutation($issue: ID!, $milestone: ID!) {
+  updateIssue(input: { id: $issue, milestoneId: $milestone }) { issue { id } }
+}`;
+
+/** Takes an issue off its milestone. Variables: issue. */
+export const CLEAR_ISSUE_MILESTONE = `
+mutation($issue: ID!) {
+  updateIssue(input: { id: $issue, milestoneId: null }) { issue { id } }
+}`;
+
+/** Sets a PR's milestone. Variables: pr, milestone. */
+export const SET_PR_MILESTONE = `
+mutation($pr: ID!, $milestone: ID!) {
+  updatePullRequest(input: { pullRequestId: $pr, milestoneId: $milestone }) { pullRequest { id } }
+}`;
+
+/** Takes a PR off its milestone. Variables: pr. */
+export const CLEAR_PR_MILESTONE = `
+mutation($pr: ID!) {
+  updatePullRequest(input: { pullRequestId: $pr, milestoneId: null }) { pullRequest { id } }
 }`;
 
 /** A repository's open PRs, for a workspace with no board. Variables: prsQuery. */

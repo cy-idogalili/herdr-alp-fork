@@ -140,13 +140,52 @@ open it with `tab.new {mod: "alpmeister"}`.
     repository than the workspace's names it in a chip.
   - With a repository and no board, Open PRs in its place: the repository's open PRs (drafts
     dimmed), with author, review decision, checks and age, Pin and the Claude button.
+  - **Board**: a workspace's board items that match its filter (`boardView.query`, the board's
+    own filter syntax, default `iteration:@current`) and its ticked statuses
+    (`boardView.statuses`, the On Board column of the status table), up to 500. The workspaces
+    with a board get the pill switch when there are two or more.
+    - On top, the filter field. Enter fetches the board with it, then saves it to the settings
+      file; a filter GitHub refuses stays in the field with the error, unsaved. Esc puts the
+      saved filter back.
+    - Under it, the people picker: each assignee's avatar with their item count, most items
+      first, then Unassigned. A click picks or unpicks one, several at once; with any picked,
+      the board shows only their items and Everyone clears the pick. Each workspace's pick is
+      kept in localStorage.
+    - The columns are the ticked statuses, each shown even when empty; with none ticked, the
+      statuses that hold an item.
+    - A card holds the number, the issue type, the session icon, Pin, the Claude button, the
+      title, the linked PRs' review state (a PR's own decision), the iteration (Current iteration,
+      in `accent`, for the current one), the milestone, and the assignees' avatars. The iteration
+      and milestone chips and menu rows carry GitHub's Octicons (`iteration.svg`,
+      `milestone.svg`, MIT). Long chips end in an ellipsis before the
+      avatars. A click on a card opens it on GitHub.
+    - The avatars download once with curl into `data/alpmeister/avatars/`, named for the image
+      type GitHub serves; until then the login's initials show.
+    - Dragging a card (a press that moves more than 5px) lifts it out of its column and draws it
+      under the pointer, where it was pressed, at its own size. The column under the pointer
+      (by the pointer's x) holds a tinted, dashed slot the card's height at the spot it would
+      land: before the first card whose middle is below the pointer, else last. A drop sets the
+      card's Status when the column differs, then its place on the board, just after the card
+      above the slot (`updateProjectV2ItemPosition`), or at the top. A drop where it started does
+      nothing.
+    - A right click opens the card's menu: Iteration and Milestone, each with the card's current
+      value and a chevron. Pointing at one or clicking it opens its menu beside it, level with its
+      row. Iteration lists No iteration, the last three completed iterations and every open one
+      (the current one noted). Milestone lists No milestone and the repository's open milestones,
+      soonest due first (read on the first open). The card's own are ticked. A card shows its
+      milestone in a chip.
+    - A move shows at once and the card dims while GitHub writes it. A refused write puts the
+      card back and shows the error over the columns. The board's ids come with its load, so a
+      Board drawn from an older cache asks for a Refresh first.
   - **Daypack**, across every repository in scope (with `"all"`, everything the searches find).
     Today's focus across the top: a todo input, then Todos, PRs and Issues, each
     under a heading with its open count. A row: checkbox, `repo#number`, title, the issue's board
     status or the PR's review decision (Approved, Changes Requested, In Review, or Merged or
-    Closed), days since it was added (from the next day), a Claude button, Remove. Items stay
-    until removed. Below it, two columns:
-    - The PRs that need your attention (author, age, checks, Pin, Review), then My PRs: your
+    Closed), days since it was added (from the next day), the session icon, a Claude button,
+    Remove. Items stay until removed. The session icon, a terminal, shows while a tab named for the
+    item is open (`repo#12`, or `PR repo#12`, the name a Claude button gives it). Its color is that
+    tab's agent status, and a click shows the tab. Below it, two columns:
+    - The PRs that need your attention (author, review decision, age, checks, Pin, Review), then My PRs: your
       open, non-draft PRs (`queries.myPrs`) with the review decision, checks and age (Pin,
       Review).
     - Your issues grouped by status, current iteration only by default (Pin, Start). An issue's
@@ -281,10 +320,17 @@ open it with `tab.new {mod: "alpmeister"}`.
   - A "TODAY'S TRAIL" group (empty: "The trail is clear.")
     with the items in sections by kind (Todos, PRs, Issues), each headed by its open count.
     A row holds the item's checkbox, title and number. A click on a title opens it on GitHub.
+    A PR row also shows where it stands: Merged or Closed, else its review decision (Approved,
+    Changes, In Review), as of Alpmeister's last refresh.
   - An issue or PR row ends with the Claude button: it opens a Claude tab running the prompt from
     Alpmeister's settings (`account.launch`, or `launch` in the one-repo shape) in the item's
     repository folder (`account.folders`), as Alpmeister's Start and Review buttons do. The
     button shows only when that prompt is set. The number shows as `repo#12`.
+  - A middle click on any Claude button opens the tab in the background (`tab.new` with
+    `focus: false`), and a Herdr notification names it; a click on the notification shows the
+    tab. A left click opens it and shows it.
+  - Before the Claude button, the session icon shows while the item's Claude tab is open, as on
+    Alpmeister's Daypack. A click shows that tab.
 - **State:**
   - It reads and writes `~/.local/state/alp/focus.json`, the file Alpmeister keeps. Mods cannot
     import across folders, so `focus-file.js` is its own reader of that format.

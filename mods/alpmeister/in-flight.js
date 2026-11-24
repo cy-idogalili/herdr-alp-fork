@@ -21,9 +21,16 @@ import {
 
 const GROUP_LIMIT = 5;
 
-/** The chip for a linked PR: its review state in the pane header's colors. */
-function prChip(t, item, pr) {
-  const id = `if-pr-${itemKey(item)}-${pr.number}`;
+/**
+ * The chip for a linked PR: its review state in the pane header's colors.
+ * @param {object} t The theme.
+ * @param {object} item The issue the PR closes.
+ * @param {{ number: number, reviewDecision: string | null }} pr The linked PR.
+ * @param {string} [prefix] Keeps the chip's id unique per list.
+ * @returns {object} The chip.
+ */
+export function prChip(t, item, pr, prefix = "if") {
+  const id = `${prefix}-pr-${itemKey(item)}-${pr.number}`;
   if (pr.reviewDecision === "CHANGES_REQUESTED")
     return NeedsYou(`#${pr.number} changes`).id(id).tooltip("Changes requested");
   if (pr.reviewDecision === "APPROVED")

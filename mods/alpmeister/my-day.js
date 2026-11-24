@@ -15,6 +15,7 @@ import {
   Row,
   Toggle,
   ago,
+  claudeTooltip,
   fillPrompt,
   itemKey,
   openUrl,
@@ -44,15 +45,17 @@ export function checksChip(t, pr, prefix) {
  * The Claude button for an issue or PR, when its prompt is set.
  * @param {string} prefix Keeps the button's id unique per list.
  * @param {object} item The issue or PR.
- * @param {{ launch(item: object): void, prompt(kind: string): string }} actions
- * @returns {object | null} The button, or null without a prompt.
+ * @param {{ launch(item: object, options?: { background?: boolean }): void, prompt(kind: string): string }} actions
+ * @returns {object | null} The button, or null without a prompt. A middle click opens the tab
+ *   in the background.
  */
 export function ClaudeButton(prefix, item, actions) {
   const prompt = actions.prompt(item.kind);
   if (!prompt) return null;
   return IconButton(`${prefix}-go-${itemKey(item)}`, ICONS.claude, () => actions.launch(item), {
     picture: true,
-    tooltip: `Open a Claude tab running ${fillPrompt(prompt, item)}`,
+    tooltip: claudeTooltip(fillPrompt(prompt, item)),
+    onMiddleClick: () => actions.launch(item, { background: true }),
   });
 }
 
@@ -74,6 +77,7 @@ export function Reviews(account, actions) {
       url: pr.url,
       chips: [
         Chip(pr.author, { color: t.muted }),
+        decisionChip(t, pr, "rv"),
         Chip(`${ago(now - pr.updatedAt)} ago`, { color: now - pr.updatedAt > STALE_PR_AGE ? t.working : t.dim }),
         checksChip(t, pr, "rv"),
       ].filter(Boolean),

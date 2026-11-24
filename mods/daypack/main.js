@@ -3,13 +3,22 @@
 // focus list Alpmeister keeps, and reloads when Alpmeister changes it. Basecamp's header (the
 // `basecamp` mod) shows how many items are open.
 
-import { View, div, image } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, home, panes, readTextFile, run, setShared, shared, spaces, theme } from "herdr";
+import { exec, home, notify, panes, readTextFile, run, setShared, shared, spaces, theme } from "herdr";
 import { FocusFile } from "./focus-file.js";
 
 const STAMP_KEY = "alp.focusStamp";
 const CLAUDE_ICON = "icons/claude.svg";
+const TERMINAL_ICON = "mods/workspace-chrome/terminal.svg";
+const PR_STANDINGS = {
+  MERGED: { text: "Merged", color: "done" },
+  CLOSED: { text: "Closed", color: "dim" },
+  APPROVED: { text: "Approved", color: "done" },
+  CHANGES_REQUESTED: { text: "Changes", color: "blocked", tooltip: "A reviewer asked for changes" },
+  REVIEW_REQUIRED: { text: "In Review", color: "muted" },
+};
+const SESSION_STATUS_LABELS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
 const SECTIONS = [
   { kind: "todo", title: "Todos" },
   { kind: "pr", title: "PRs" },
@@ -79,6 +88,37 @@ const fillPrompt = (template, item) =>
 /** An item's number as the list shows it: "repo#12". */
 const label = (item) => `${repoOf(item).split("/")[1] ?? ""}#${item.number}`;
 
+/** The name Alpmeister's `sessionName` gives a Claude tab on an issue or PR: keep the two in step. */
+const sessionName = (item) => (item.kind === "pr" ? `PR ${label(item)}` : label(item));
+
+/** The open tab that carries an issue's or PR's session name, and its space, or null. */
+function sessionTab(item) {
+  if (item.kind === "todo" || item.number == null) return null;
+  const name = sessionName(item);
+  for (const space of spaces()) {
+    const tab = space.tabs.find((candidate) => candidate.named && candidate.name === name);
+    if (tab) return { space, tab };
+  }
+  return null;
+}
+
+/**
+ * Tells the person a Claude tab opened in the background, as Alpmeister's
+ * `announceBackgroundTab` does: keep the two in step. A click on the notification shows the tab.
+ */
+function announceBackgroundTab(item, spaceId) {
+  const name = sessionName(item);
+  const space = spaces().find((candidate) => candidate.id === spaceId);
+  const tab = space?.tabs.filter((candidate) => candidate.name === name).at(-1);
+  notify({
+    title: `Claude tab ${name} opened in the background`,
+    ...(item.title ? { body: item.title } : {}),
+    level: "info",
+    icon: CLAUDE_ICON,
+    ...(tab ? { action: { name: "tab.select", args: { id: tab.id } } } : {}),
+  });
+}
+
 export default class Daypack extends View {
   init(_props, cx) {
     this.store = new FocusFile();
@@ -90,10 +130,12 @@ export default class Daypack extends View {
   /**
    * Opens a Claude tab on an issue or PR in the space you are in. It starts in the live folder of
    * that space's first tab when it is the repository's local clone or inside it, such as a
-   * worktree, else in the clone, else in the space's own folder.
+   * worktree, else in the clone, else in the space's own folder. A background tab opens without
+   * taking focus, and a notification says so.
    * @param {object} item The issue or PR.
+   * @param {{ background?: boolean }} [options]
    */
-  launch(item) {
+  launch(item, { background = false } = {}) {
     const { issue, pr, folders } = this.launchSettings;
     const repo = folders[repoOf(item)] ?? "";
     const space = spaces().find((candidate) => candidate.active);
@@ -103,12 +145,14 @@ export default class Daypack extends View {
     const inRepo = Boolean(repo && spaceFolder && (spaceFolder === repo || spaceFolder.startsWith(`${repo}/`)));
     const folder = inRepo ? spaceFolder : repo;
     run("tab.new", {
-      name: item.kind === "pr" ? `PR ${label(item)}` : label(item),
+      name: sessionName(item),
       ...(space ? { space: space.id } : {}),
       ...(folder ? { folder } : {}),
       argv: ["claude"],
       task: fillPrompt(item.kind === "pr" ? pr : issue, item),
+      focus: !background,
     });
+    if (background) announceBackgroundTab(item, space?.id);
   }
 
   /** The Claude button for an issue or PR, when its command is set; null otherwise. */
@@ -125,12 +169,67 @@ export default class Daypack extends View {
       .rounded(5)
       .cursor_pointer()
       .hover((style) => style.bg(t.selected))
-      .tooltip(`Open a Claude tab running ${fillPrompt(command, item)}`)
+      .tooltip(`Open a Claude tab running ${fillPrompt(command, item)}. Middle-click opens it in the background.`)
       .on_click((_event, cx) => {
         cx.stop_propagation();
         this.launch(item);
       })
+      .on_mouse_up("middle", (_event, cx) => {
+        cx.stop_propagation();
+        this.launch(item, { background: true });
+      })
       .child(image(CLAUDE_ICON).w(13).h(13));
+  }
+
+  /**
+   * A terminal icon in the color of the item's Claude tab status, when that tab is open. A click
+   * shows the tab.
+   * @returns {object | null} The button, or null with no tab open.
+   */
+  sessionButton(t, item) {
+    const session = sessionTab(item);
+    if (!session) return null;
+    const { space, tab } = session;
+    const colors = { working: t.working, blocked: t.blocked, done: t.done };
+    const status = SESSION_STATUS_LABELS[tab.status] ?? "open";
+    return h_flex()
+      .id(`ds-session-${item.id}`)
+      .flex_none()
+      .size(22)
+      .items_center()
+      .justify_center()
+      .rounded(5)
+      .cursor_pointer()
+      .hover((style) => style.bg(t.selected))
+      .tooltip(`Claude tab ${tab.name} in ${space.name}: ${status}. Click to show it.`)
+      .on_click((_event, cx) => {
+        cx.stop_propagation();
+        run("space.select", { id: space.id });
+        run("tab.select", { id: tab.id });
+      })
+      .text_color(colors[tab.status] ?? t.dim)
+      .child(svg(TERMINAL_ICON).size(13));
+  }
+
+  /**
+   * Where a PR stands, as of Alpmeister's last refresh: Merged or Closed, else its review decision.
+   * @returns {object | null} The chip, or null for an issue, a todo, or a PR not yet read.
+   */
+  prStanding(t, item) {
+    if (item.kind !== "pr") return null;
+    const standing = PR_STANDINGS[item.state === "OPEN" ? item.review : (item.state ?? item.review)];
+    if (!standing) return null;
+    const chip = h_flex()
+      .flex_none()
+      .px(5)
+      .h(16)
+      .items_center()
+      .rounded(4)
+      .bg(t.hover)
+      .text_size(10)
+      .text_color(t[standing.color] ?? t.muted)
+      .child(standing.text);
+    return standing.tooltip ? chip.id(`ds-standing-${item.id}`).tooltip(standing.tooltip) : chip;
   }
 
   /** Reads the focus list again, then redraws. */
@@ -159,7 +258,7 @@ export default class Daypack extends View {
     });
   }
 
-  /** One item: its checkbox, its title, its repository and number, and its Claude button. A click on the title opens it on GitHub. */
+  /** One item: its checkbox, its title, its repository and number, a PR's standing, its open Claude tab, and its Claude button. A click on the title opens it on GitHub. */
   row(t, item) {
     const text = item.kind === "todo" ? item.text : item.title;
     return h_flex()
@@ -194,7 +293,7 @@ export default class Daypack extends View {
           .child(text ?? ""),
       )
       .when(item.number != null, (el) => el.child(div().flex_none().text_color(t.dim).child(label(item))))
-      .children([this.claudeButton(t, item)].filter(Boolean));
+      .children([this.prStanding(t, item), this.sessionButton(t, item), this.claudeButton(t, item)].filter(Boolean));
   }
 
   render(cx) {
