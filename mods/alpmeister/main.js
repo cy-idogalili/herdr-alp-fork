@@ -38,7 +38,7 @@ import { MyIssues, MyPrs, Reviews } from "./my-day.js";
 import { Spotlight } from "./spotlight.js";
 import { Milestone, Tiles } from "./project.js";
 import { SettingsForm } from "./settings-view.js";
-import { Card, ICONS, IconButton, Note, TextButton, ago, fillPrompt, shortRepo } from "./ui.js";
+import { Card, ICONS, IconButton, Note, TextButton, ago, fillPrompt, sessionName } from "./ui.js";
 
 const STALE_AFTER = 2 * 3600000;
 /** The pause after an agents folder changes before it is watched again: agents write often. */
@@ -459,10 +459,12 @@ export default class Alpmeister extends View {
   /**
    * Opens a Claude tab on an issue or PR in the space you are in. It starts in the live folder of
    * that space's first tab when it is the repository's local clone or inside it, such as a
-   * worktree, else in the clone, else in the space's own folder.
+   * worktree, else in the clone, else in the space's own folder. A background tab opens without
+   * taking focus.
    * @param {{ kind: string, repo: string, number: number }} item The issue or PR.
+   * @param {{ background?: boolean }} [options]
    */
-  launch(item) {
+  launch(item, { background = false } = {}) {
     const clone = folderOf(this.config, item.repo);
     const space = spaces().find((candidate) => candidate.active);
     const firstTab = space?.tabs?.[0]?.id;
@@ -470,19 +472,19 @@ export default class Alpmeister extends View {
     const spaceFolder = liveFolder?.replace(/\/+$/, "");
     const inRepo = Boolean(clone && spaceFolder && (spaceFolder === clone || spaceFolder.startsWith(`${clone}/`)));
     const folder = inRepo ? spaceFolder : clone;
-    const label = `${shortRepo(item.repo)}#${item.number}`;
     run("tab.new", {
-      name: item.kind === "pr" ? `PR ${label}` : label,
+      name: sessionName(item),
       ...(space ? { space: space.id } : {}),
       ...(folder ? { folder } : {}),
       argv: ["claude"],
       task: fillPrompt(this.prompt(item.kind), item),
+      focus: !background,
     });
   }
 
   /** The actions every row with a Claude button needs. */
   launchActions() {
-    return { launch: (item) => this.launch(item), prompt: (kind) => this.prompt(kind) };
+    return { launch: (item, options) => this.launch(item, options), prompt: (kind) => this.prompt(kind) };
   }
 
   /** The workspace the Dashboard shows, or null for All repos. */
@@ -712,7 +714,7 @@ export default class Alpmeister extends View {
         this.focus.remove(id);
         this.persist(cx);
       },
-      launch: (item) => this.launch(item),
+      launch: (item, options) => this.launch(item, options),
       command: (kind) => this.prompt(kind),
       edit: {
         id: this.editingTodo,

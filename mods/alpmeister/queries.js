@@ -68,7 +68,7 @@ query($reviewQuery: String!, $mineQuery: String!, $myPrsQuery: String!) {
     issueCount
     nodes {
       ... on PullRequest {
-        number title url updatedAt
+        number title url updatedAt reviewDecision
         repository { nameWithOwner }
         author { login }
         ${CHECKS}

@@ -144,9 +144,11 @@ open it with `tab.new {mod: "alpmeister"}`.
     Today's focus across the top: a todo input, then Todos, PRs and Issues, each
     under a heading with its open count. A row: checkbox, `repo#number`, title, the issue's board
     status or the PR's review decision (Approved, Changes Requested, In Review, or Merged or
-    Closed), days since it was added (from the next day), a Claude button, Remove. Items stay
-    until removed. Below it, two columns:
-    - The PRs that need your attention (author, age, checks, Pin, Review), then My PRs: your
+    Closed), days since it was added (from the next day), the session icon, a Claude button,
+    Remove. Items stay until removed. The session icon, a terminal, shows while a tab named for the
+    item is open (`repo#12`, or `PR repo#12`, the name a Claude button gives it). Its color is that
+    tab's agent status, and a click shows the tab. Below it, two columns:
+    - The PRs that need your attention (author, review decision, age, checks, Pin, Review), then My PRs: your
       open, non-draft PRs (`queries.myPrs`) with the review decision, checks and age (Pin,
       Review).
     - Your issues grouped by status, current iteration only by default (Pin, Start). An issue's
@@ -281,10 +283,16 @@ open it with `tab.new {mod: "alpmeister"}`.
   - A "TODAY'S TRAIL" group (empty: "The trail is clear.")
     with the items in sections by kind (Todos, PRs, Issues), each headed by its open count.
     A row holds the item's checkbox, title and number. A click on a title opens it on GitHub.
+    A PR row also shows where it stands: Merged or Closed, else its review decision (Approved,
+    Changes, In Review), as of Alpmeister's last refresh.
   - An issue or PR row ends with the Claude button: it opens a Claude tab running the prompt from
     Alpmeister's settings (`account.launch`, or `launch` in the one-repo shape) in the item's
     repository folder (`account.folders`), as Alpmeister's Start and Review buttons do. The
     button shows only when that prompt is set. The number shows as `repo#12`.
+  - A middle click on any Claude button opens the tab in the background (`tab.new` with
+    `focus: false`). A left click opens it and shows it.
+  - Before the Claude button, the session icon shows while the item's Claude tab is open, as on
+    Alpmeister's Daypack. A click shows that tab.
 - **State:**
   - It reads and writes `~/.local/state/alp/focus.json`, the file Alpmeister keeps. Mods cannot
     import across folders, so `focus-file.js` is its own reader of that format.
