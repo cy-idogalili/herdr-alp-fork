@@ -140,6 +140,41 @@ open it with `tab.new {mod: "alpmeister"}`.
     repository than the workspace's names it in a chip.
   - With a repository and no board, Open PRs in its place: the repository's open PRs (drafts
     dimmed), with author, review decision, checks and age, Pin and the Claude button.
+  - **Board**: a workspace's board items that match its filter (`boardView.query`, the board's
+    own filter syntax, default `iteration:@current`) and its ticked statuses
+    (`boardView.statuses`, the On Board column of the status table), up to 500. The workspaces
+    with a board get the pill switch when there are two or more.
+    - On top, the filter field. Enter fetches the board with it, then saves it to the settings
+      file; a filter GitHub refuses stays in the field with the error, unsaved. Esc puts the
+      saved filter back.
+    - Under it, the people picker: each assignee's avatar with their item count, most items
+      first, then Unassigned. A click picks or unpicks one, several at once; with any picked,
+      the board shows only their items and Everyone clears the pick. Each workspace's pick is
+      kept in localStorage.
+    - The columns are the ticked statuses, each shown even when empty; with none ticked, the
+      statuses that hold an item.
+    - A card holds the number, the issue type, the session icon, Pin, the Claude button, the
+      title, the linked PRs' review state (a PR's own decision), the iteration when it is not
+      the current one, and the assignees' avatars. Long chips end in an ellipsis before the
+      avatars. A click on a card opens it on GitHub.
+    - The avatars download once with curl into `data/alpmeister/avatars/`, named for the image
+      type GitHub serves; until then the login's initials show.
+    - Dragging a card (a press that moves more than 5px) lifts it out of its column and draws it
+      under the pointer, where it was pressed, at its own size. The column under the pointer
+      (by the pointer's x) holds a tinted, dashed slot the card's height at the spot it would
+      land: before the first card whose middle is below the pointer, else last. A drop sets the
+      card's Status when the column differs, then its place on the board, just after the card
+      above the slot (`updateProjectV2ItemPosition`), or at the top. A drop where it started does
+      nothing.
+    - A right click opens the card's menu: Iteration and Milestone, each with the card's current
+      value and a chevron. Pointing at one or clicking it opens its menu beside it, level with its
+      row. Iteration lists No iteration, the last three completed iterations and every open one
+      (the current one noted). Milestone lists No milestone and the repository's open milestones,
+      soonest due first (read on the first open). The card's own are ticked. A card shows its
+      milestone in a chip.
+    - A move shows at once and the card dims while GitHub writes it. A refused write puts the
+      card back and shows the error over the columns. The board's ids come with its load, so a
+      Board drawn from an older cache asks for a Refresh first.
   - **Daypack**, across every repository in scope (with `"all"`, everything the searches find).
     Today's focus across the top: a todo input, then Todos, PRs and Issues, each
     under a heading with its open count. A row: checkbox, `repo#number`, title, the issue's board

@@ -103,6 +103,12 @@ const FIELDS = {
     get: (ws) => ws.customer.labelMatch,
     set: (ws, value) => (ws.customer.labelMatch = value),
   },
+  boardView: {
+    scope: "workspace",
+    placeholder: "The board's filter syntax, such as type:Bug iteration:@current",
+    get: (ws) => ws.boardView.query,
+    set: (ws, value) => (ws.boardView.query = value),
+  },
   excludeTypes: {
     scope: "workspace",
     placeholder: "Issue types left out of the team in flight",
@@ -1172,7 +1178,8 @@ export class SettingsForm {
         ),
       )
       .child(this.statusTable(t, ws))
-      .child(this.field(t, "Leave out of in flight", this.text(t, "excludeTypes")));
+      .child(this.field(t, "Leave out of in flight", this.text(t, "excludeTypes")))
+      .child(this.field(t, "Board tab filter", this.text(t, "boardView")));
   }
 
   /** One row per status: its role, whether Your issues hides it, and which one means on hold. */
@@ -1195,6 +1202,7 @@ export class SettingsForm {
           .child(div().w(150).child("Status"))
           .child(div().w(230).child("Counts as"))
           .child(div().w(110).child("Hide in Your issues"))
+          .child(div().w(70).child("On Board"))
           .child(div().child("On hold")),
       )
       .children(
@@ -1235,6 +1243,24 @@ export class SettingsForm {
                       : ws.statuses.filter((value) => value === status || ws.mineHidden.includes(value));
                     cx.notify();
                   }),
+                ),
+            )
+            .child(
+              h_flex()
+                .w(70)
+                .child(
+                  this.check(
+                    t,
+                    `st-board-${index}`,
+                    ws.boardView.statuses.includes(status),
+                    (cx) => {
+                      ws.boardView.statuses = ws.boardView.statuses.includes(status)
+                        ? ws.boardView.statuses.filter((value) => value !== status)
+                        : ws.statuses.filter((value) => value === status || ws.boardView.statuses.includes(value));
+                      cx.notify();
+                    },
+                    { tooltip: "A column on the Board tab. With none ticked, every status that holds an item" },
+                  ),
                 ),
             )
             .child(

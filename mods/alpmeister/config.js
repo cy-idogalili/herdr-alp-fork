@@ -48,6 +48,7 @@ const WORKSPACE_DEFAULTS = {
     holdStatus: "On Hold",
   },
   customer: { labelMatch: "customer" },
+  boardView: { query: "iteration:@current", statuses: [] },
   nightly: null,
 };
 
@@ -113,6 +114,7 @@ export function normalizeWorkspace(raw) {
     bugs: { ...base.bugs, ...raw.bugs },
     spotlight: { ...base.spotlight, ...raw.spotlight },
     customer: { ...base.customer, ...raw.customer },
+    boardView: { ...base.boardView, ...raw.boardView, statuses: list(raw.boardView?.statuses, base.boardView.statuses) },
     nightly: raw.nightly?.workflow ? { branch: "main", events: ["schedule"], checks: [], ...raw.nightly } : null,
   };
 }

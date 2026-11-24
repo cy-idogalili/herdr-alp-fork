@@ -20,7 +20,7 @@ What's inside:
 | `mods/usage-limits/` | sidebar block: session (5h) and weekly (7d) usage, with time to reset |
 | `mods/pane-agent/` | pane header: icon, name, folder, model/effort/context chips, worktree, branch, status, split/zoom/close |
 | `mods/alp-agents/` | sidebar agents list: grouped or priority views, sub-agents under their parent, each Space shown by its avatar |
-| `mods/alpmeister/` | a team lead's start-of-day tab: a Dashboard of all your repos or one workspace (bugs by priority, triage, customer issues, nightly, priorities, milestone, team in flight), Herds, Daypack (focus, reviews, your PRs, your issues) and Settings |
+| `mods/alpmeister/` | a team lead's start-of-day tab: a Dashboard of all your repos or one workspace (bugs by priority, triage, customer issues, nightly, priorities, milestone, team in flight), a Board, Herds, Daypack (focus, reviews, your PRs, your issues) and Settings |
 | `mods/basecamp/` | Basecamp: the right column beside the terminals, with a Daypack tab and a Run tab, shown or hidden from the tent button in the tab bar |
 | `mods/daypack/` | Daypack: Basecamp's tab with today's trail |
 | `mods/alp-runs/` | Runs: Basecamp's Run tab (the workspace's VS Code launch configs and tasks, and your saved commands, each with a play button) and the bottom panel with each run's output and sessions |
@@ -92,7 +92,7 @@ sheep beside + in the tab bar (it goes to the space's Alpmeister tab when one is
 herdr-app do tab.new '{"mod":"alpmeister","name":"Alpmeister"}'
 ```
 
-It has three tabs: Dashboard, Herds and Daypack, and a gear beside Refresh that opens its
+It has four tabs: Dashboard, Board, Herds and Daypack, and a gear beside Refresh that opens its
 settings in a tab of their own. It works before you set anything:
 the Dashboard starts on all your repositories.
 
@@ -109,6 +109,12 @@ the Dashboard starts on all your repositories.
   review requests with a Review button, your open PRs, and your issues with a Start button,
   from every repository in scope. Both buttons open a Claude Code tab running the prompt set in
   Settings, in that repository's local clone, and show only when the prompt is set.
+- **Board:** a workspace's board items, a column per status, with each card's assignee avatars.
+  Its filter field takes the board's own syntax, such as `type:Bug iteration:@current`: Enter
+  applies and saves it, Esc puts the saved one back. The avatars on top pick whose items show,
+  several at once. Settings holds an On Board tick per status that picks the columns. Drag a card
+  to another column to move it to that status; right-click it to change its iteration or
+  milestone. Both write to GitHub at once, so `gh` needs the `project` scope.
 - **Herds:** your Claude Code sessions and how they are linked. A session that messaged others
   (`SendMessage`) or made their worktrees is a herdsman, marked with a crook: drawn on top, with a line down to each
   of its herd, labelled `msg 12:36` for its latest message or dotted `worktree`. Who and when

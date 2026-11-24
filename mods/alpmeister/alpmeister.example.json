@@ -34,6 +34,10 @@
         "excludeTypes": ["Test", "Test Plan"]
       },
       "mineHidden": ["New", "Done", "On Hold"],
+      "boardView": {
+        "query": "type:Task,Bug,Story iteration:@current,@previous",
+        "statuses": ["Todo", "Dev Design", "In Development", "In Review", "Done"]
+      },
       "queries": {
         "triage": "is:issue is:open type:Bug label:triage"
       },

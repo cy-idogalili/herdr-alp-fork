@@ -8,6 +8,7 @@ import { exec } from "herdr";
 import { inScope, workspaceOfBoard } from "./config.js";
 import {
   ACCOUNT,
+  BOARD_VIEW_PAGE,
   BUGS_PAGE,
   CUSTOMER_LABELS,
   ISSUE_COUNT,
@@ -19,6 +20,7 @@ import {
 
 const DAY = 86400000;
 const BUG_PAGES = 10;
+const BOARD_VIEW_PAGES = 5;
 const FAILED_CONCLUSIONS = ["failure", "timed_out", "startup_failure"];
 
 /** The cache format: a cache written by another version is ignored. */
@@ -322,6 +324,107 @@ async function customerIssues(ws) {
   return { labels, count: (await graphql(ISSUE_COUNT, { searchQuery: query })).search.issueCount, query };
 }
 
+/**
+ * One board item for the Board tab: an issue, a PR or a draft, with its status, iteration and
+ * assignees with their avatar URLs. A PR keeps its own review decision; an issue keeps the PRs that would close it.
+ */
+function boardViewItem(ws, node) {
+  const content = node.content ?? {};
+  const kind = content.__typename === "PullRequest" ? "pr" : content.__typename === "Issue" ? "issue" : "draft";
+  return {
+    kind,
+    itemId: node.id ?? null,
+    contentId: content.id ?? null,
+    repo: content.repository?.nameWithOwner ?? ws.repo,
+    number: content.number ?? null,
+    title: content.title ?? "",
+    url: content.url ?? null,
+    state: content.state ?? null,
+    type: content.issueType?.name ?? null,
+    status: node.status?.name ?? null,
+    iteration: node.iteration?.title ?? null,
+    iterationId: node.iteration?.iterationId ?? null,
+    milestone: content.milestone ? { id: content.milestone.id, title: content.milestone.title } : null,
+    assignees: (content.assignees?.nodes ?? []).map((assignee) => ({ login: assignee.login, avatar: assignee.avatarUrl ?? null })),
+    reviewDecision: content.reviewDecision ?? null,
+    prs: (content.closedByPullRequestsReferences?.nodes ?? []).filter((pr) => !pr.isDraft),
+  };
+}
+
+/**
+ * The ids a Board move needs, from the board's first page.
+ * @param {object} project The `projectV2` node.
+ * @returns {object} `{ projectId, status: { fieldId, options }, iteration: { fieldId, iterations } }`;
+ *   `options` maps a status name to its option id, and either field is null when the board has none.
+ */
+function boardMeta(project) {
+  const status = project.statusMeta?.id
+    ? { fieldId: project.statusMeta.id, options: Object.fromEntries(project.statusMeta.options.map((option) => [option.name, option.id])) }
+    : null;
+  const configuration = project.iterationMeta?.configuration;
+  const iteration = project.iterationMeta?.id
+    ? {
+        fieldId: project.iterationMeta.id,
+        iterations: [
+          ...configuration.completedIterations.map((entry) => ({ ...entry, completed: true })),
+          ...configuration.iterations.map((entry) => ({ ...entry, completed: false })),
+        ].sort((a, b) => a.startDate.localeCompare(b.startDate)),
+      }
+    : null;
+  return { projectId: project.id, status, iteration };
+}
+
+/**
+ * The Board tab's statuses that the workspace still has, in its order.
+ * @param {object} ws The workspace.
+ * @returns {string[]} The statuses ticked for the Board, or none for every status.
+ */
+export const boardStatuses = (ws) => ws.statuses.filter((status) => ws.boardView.statuses.includes(status));
+
+/**
+ * The Board tab's whole filter: the workspace's filter, then its ticked statuses.
+ * @param {object} ws The workspace.
+ * @returns {string} The filter, or "" when neither is set.
+ */
+export function boardFilter(ws) {
+  const statuses = boardStatuses(ws);
+  return [ws.boardView.query.trim(), statuses.length ? valueList("status", statuses) : ""].filter(Boolean).join(" ");
+}
+
+/**
+ * The board items that match the workspace's Board tab filter, up to five pages of 100.
+ * @param {object} ws The workspace, with a board.
+ * @returns {Promise<{ filter: string, total: number, items: object[], meta: object | null }>}
+ *   `meta` holds the ids a move needs: the board's, its Status field and options, and its
+ *   Iteration field with the open and the completed iterations.
+ */
+export async function loadBoardView(ws) {
+  const fields = { statusField: ws.board.statusField ?? "Status", iterationField: ws.board.iterationField ?? "Iteration" };
+  const filter = boardFilter(ws);
+  const items = [];
+  let total = 0;
+  let after = null;
+  let meta = null;
+  for (let page = 0; page < BOARD_VIEW_PAGES; page += 1) {
+    const result = await graphql(BOARD_VIEW_PAGE, {
+      projectOwner: ws.board.owner,
+      projectNumber: ws.board.number,
+      ...fields,
+      filter,
+      ...(after ? { after } : {}),
+    });
+    const project = result.owner?.projectV2;
+    const connection = project?.items;
+    if (!connection) break;
+    meta ??= boardMeta(project);
+    total = connection.totalCount;
+    items.push(...connection.nodes.filter((node) => node.content).map((node) => boardViewItem(ws, node)));
+    if (!connection.pageInfo.hasNextPage) break;
+    after = connection.pageInfo.endCursor;
+  }
+  return { filter, total, items, meta };
+}
+
 /** A PR from a search, shaped for the lists. */
 function prRow(pr) {
   return {
@@ -353,7 +456,7 @@ const part = (errors, key, promise) =>
 
 /**
  * Loads one workspace: its repository's milestones, bugs, triage, customer issues, nightly run
- * and open PRs, and its board's iterations and items in flight. A part the workspace has no
+ * and open PRs, and its board's iterations, items in flight and the Board tab's items. A part the workspace has no
  * repository or board for is null.
  * @param {object} ws The workspace.
  * @returns {Promise<object>} The workspace's model, with failures in `errors`.
@@ -368,7 +471,7 @@ export async function loadWorkspace(ws) {
   };
   const [owner, name] = ws.repo ? ws.repo.split("/") : [];
   const none = Promise.resolve(null);
-  const [repo, board, nightlyRun, bugs, customer, prs] = await Promise.all([
+  const [repo, board, nightlyRun, bugs, customer, prs, boardView] = await Promise.all([
     ws.repo ? part(errors, "github", graphql(WORKSPACE_REPO, { owner, name, ...fields, triageQuery: queries.triageQuery })) : none,
     ws.board
       ? part(
@@ -386,8 +489,9 @@ export async function loadWorkspace(ws) {
     ws.repo ? part(errors, "bugs", bugsByPriority(ws, queries.bugsQuery)) : none,
     ws.repo ? part(errors, "customer", customerIssues(ws)) : none,
     ws.repo && !ws.board ? part(errors, "prs", graphql(OPEN_PRS, { prsQuery: queries.prsQuery })) : none,
+    ws.board && boardFilter(ws) ? part(errors, "boardView", loadBoardView(ws)) : none,
   ]);
-  const model = { fetchedAt: now, errors, nightly: nightlyRun, bugs, customer, queries };
+  const model = { fetchedAt: now, errors, nightly: nightlyRun, bugs, customer, queries, boardView };
   if (repo?.repository) {
     const upcoming = upcomingMilestones(repo.repository, now);
     model.milestone = nextMilestone(ws, repo.repository, upcoming[0]);

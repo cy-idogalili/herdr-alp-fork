@@ -3,6 +3,7 @@
 //   Dashboard  one workspace at a time (tiles for open bugs by priority, triage bugs, customer
 //              issues and the nightly run, the spotlight, the next milestone and the team in
 //              flight), or All repos: your GitHub as a whole.
+//   Board      a workspace's board items that match its Board tab filter, a column per status.
 //   Herds      your Claude Code sessions and how they are linked.
 //   Daypack    today's focus, then review requests, your PRs and your issues across your repos.
 //   Settings   everything in ~/.config/alp/alpmeister.json, as a form: a copy opened with
@@ -26,6 +27,9 @@ import {
   writeTextFile,
 } from "herdr";
 import { AccountTiles, OpenPrs, Repos } from "./account.js";
+import { Avatars } from "./avatars.js";
+import { BoardState } from "./board-state.js";
+import { Board } from "./board-view.js";
 import { folderOf, loadConfig, normalizeConfig, stateDir } from "./config.js";
 import { MODEL_VERSION, loadAll, loadPickStates } from "./data.js";
 import { FocusStore, pickId } from "./focus.js";
@@ -44,7 +48,7 @@ const STALE_AFTER = 2 * 3600000;
 /** The pause after an agents folder changes before it is watched again: agents write often. */
 const AGENT_WATCH_PAUSE = 3000;
 const WIDE = 1000;
-const TABS = { dashboard: "dashboard", today: "today", herds: "herds", settings: "settings" };
+const TABS = { dashboard: "dashboard", board: "board", today: "today", herds: "herds", settings: "settings" };
 const TAB_KEY = "alpmeister.tab";
 const SETTINGS_TAB_NAME = "Alpmeister settings";
 /** Set after the settings file is saved, so every other copy fetches with the new settings. */
@@ -93,6 +97,8 @@ export default class Alpmeister extends View {
     this.teamIterationOnly = false;
     this.mineIterationOnly = true;
     this.expandedGroups = new Set();
+    this.avatars = new Avatars();
+    this.boardState = new BoardState(this);
     this.width = 1200;
     this.height = 800;
     this.cacheSnapshot = null;
@@ -235,6 +241,19 @@ export default class Alpmeister extends View {
     this.configText = text;
     if (config && !this.settings.dirty()) this.settings.load(config, text);
     return config ?? null;
+  }
+
+  /**
+   * Takes settings this copy just wrote outside the form, then tells the other copies.
+   * @param {object} config The settings written.
+   * @param {string | null} text The file's text now.
+   */
+  settingsSaved(config, text) {
+    this.config = config;
+    this.configText = text;
+    if (!this.settings.dirty()) this.settings.load(config, text);
+    this.settingsStamp = Date.now();
+    setShared(SETTINGS_STAMP_KEY, this.settingsStamp);
   }
 
   /** Tells the other copies the settings file changed, after a save here. */
@@ -515,7 +534,7 @@ export default class Alpmeister extends View {
     cx.notify();
   }
 
-  /** The tab switch: Dashboard, Herds and Daypack, as pills in one rounded frame. */
+  /** The tab switch: Dashboard, Board, Herds and Daypack, as pills in one rounded frame. */
   tabs(t) {
     const open = this.focus.items().filter((item) => !item.done).length;
     const pill = (tab, label) =>
@@ -541,6 +560,7 @@ export default class Alpmeister extends View {
       .border_1()
       .border_color(t.border)
       .child(pill(TABS.dashboard, "Dashboard"))
+      .child(pill(TABS.board, "Board"))
       .child(pill(TABS.herds, "Herds"))
       .child(pill(TABS.today, open ? `Daypack · ${open}` : "Daypack"));
   }
@@ -594,13 +614,15 @@ export default class Alpmeister extends View {
 
   /**
    * The Dashboard's switch: one pill per workspace, then All repos. Hidden with no workspaces.
+   * The Board tab's switch holds the workspaces with a board and no All repos, and hides with one.
    * @param {object} t The theme.
+   * @param {{ boards?: object[], shown?: string }} [board] The Board tab's workspaces and the shown one.
    * @returns {object | null}
    */
-  workspaceSwitch(t) {
-    const workspaces = this.config?.workspaces ?? [];
-    if (!workspaces.length) return null;
-    const shown = this.shownWorkspace()?.name ?? ALL_REPOS;
+  workspaceSwitch(t, board) {
+    const workspaces = board?.boards ?? this.config?.workspaces ?? [];
+    if (board ? workspaces.length < 2 : !workspaces.length) return null;
+    const shown = board?.shown ?? this.shownWorkspace()?.name ?? ALL_REPOS;
     const pill = (name, label) =>
       h_flex()
         .id(`ws-${name || "all"}`)
@@ -622,7 +644,40 @@ export default class Alpmeister extends View {
       .gap(6)
       .items_center()
       .children(workspaces.map((ws) => pill(ws.name, ws.name)))
-      .child(pill(ALL_REPOS, "All repos"));
+      .when(!board, (el) => el.child(pill(ALL_REPOS, "All repos")));
+  }
+
+  /**
+   * The Board tab: the shown workspace's board, or the first workspace with a board when the
+   * shown one has none. It downloads the avatars its cards lack, then draws them.
+   */
+  board(model, cx) {
+    const state = this.boardState;
+    const { boards, ws } = state.workspace();
+    if (!ws) return Note("Add a project board to a workspace in Settings to see it here.");
+    state.sync(ws);
+    const switcher = this.workspaceSwitch(theme(), { boards, shown: ws.name });
+    const wsModel = model.workspaces?.[ws.name];
+    const people = (wsModel?.boardView?.items ?? []).flatMap((item) => item.assignees);
+    if (this.avatars.missing(people).length) {
+      cx.spawn(async (cx) => {
+        await this.avatars.load(people);
+        cx.notify();
+      });
+    }
+    return v_flex()
+      .gap(14)
+      .when(Boolean(switcher), (el) => el.child(switcher))
+      .child(
+        Board(ws, wsModel, {
+          ...this.launchActions(),
+          loading: this.loading,
+          avatarPath: (login) => this.avatars.path(login),
+          onEditStatuses: () => this.openSettings(),
+          ...state.options(ws),
+          pinFor: (prefix) => this.pinFor(prefix),
+        }),
+      );
   }
 
   /**
@@ -825,7 +880,11 @@ export default class Alpmeister extends View {
         if (!this.configError) content = content.child(Note(this.loading ? "Loading from GitHub…" : "No data yet."));
       } else {
         content = content.child(
-          this.tab === TABS.today ? this.today(config, model, wide) : this.dashboard(config, model, wide),
+          this.tab === TABS.today
+            ? this.today(config, model, wide)
+            : this.tab === TABS.board
+              ? this.board(model, cx)
+              : this.dashboard(config, model, wide),
         );
       }
     }
