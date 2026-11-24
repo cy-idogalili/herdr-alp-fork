@@ -5,7 +5,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, home, panes, readTextFile, run, setShared, shared, spaces, theme } from "herdr";
+import { exec, home, notify, panes, readTextFile, run, setShared, shared, spaces, theme } from "herdr";
 import { FocusFile } from "./focus-file.js";
 
 const STAMP_KEY = "alp.focusStamp";
@@ -102,6 +102,23 @@ function sessionTab(item) {
   return null;
 }
 
+/**
+ * Tells the person a Claude tab opened in the background, as Alpmeister's
+ * `announceBackgroundTab` does: keep the two in step. A click on the notification shows the tab.
+ */
+function announceBackgroundTab(item, spaceId) {
+  const name = sessionName(item);
+  const space = spaces().find((candidate) => candidate.id === spaceId);
+  const tab = space?.tabs.filter((candidate) => candidate.name === name).at(-1);
+  notify({
+    title: `Claude tab ${name} opened in the background`,
+    ...(item.title ? { body: item.title } : {}),
+    level: "info",
+    icon: CLAUDE_ICON,
+    ...(tab ? { action: { name: "tab.select", args: { id: tab.id } } } : {}),
+  });
+}
+
 export default class Daypack extends View {
   init(_props, cx) {
     this.store = new FocusFile();
@@ -114,7 +131,7 @@ export default class Daypack extends View {
    * Opens a Claude tab on an issue or PR in the space you are in. It starts in the live folder of
    * that space's first tab when it is the repository's local clone or inside it, such as a
    * worktree, else in the clone, else in the space's own folder. A background tab opens without
-   * taking focus.
+   * taking focus, and a notification says so.
    * @param {object} item The issue or PR.
    * @param {{ background?: boolean }} [options]
    */
@@ -135,6 +152,7 @@ export default class Daypack extends View {
       task: fillPrompt(item.kind === "pr" ? pr : issue, item),
       focus: !background,
     });
+    if (background) announceBackgroundTab(item, space?.id);
   }
 
   /** The Claude button for an issue or PR, when its command is set; null otherwise. */

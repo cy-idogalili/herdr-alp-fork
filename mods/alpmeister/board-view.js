@@ -140,7 +140,7 @@ function ItemCard(t, item, options) {
       Chip(IconLabel(ICONS.iteration, current ? "Current iteration" : item.iteration), {
         color: current ? t.accent : t.working,
         id: `${id}-it`,
-        tooltip: current ? item.iteration : "Not in the current iteration",
+        tooltip: item.iteration,
       }),
     );
   }

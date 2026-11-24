@@ -327,7 +327,8 @@ open it with `tab.new {mod: "alpmeister"}`.
     repository folder (`account.folders`), as Alpmeister's Start and Review buttons do. The
     button shows only when that prompt is set. The number shows as `repo#12`.
   - A middle click on any Claude button opens the tab in the background (`tab.new` with
-    `focus: false`). A left click opens it and shows it.
+    `focus: false`), and a Herdr notification names it; a click on the notification shows the
+    tab. A left click opens it and shows it.
   - Before the Claude button, the session icon shows while the item's Claude tab is open, as on
     Alpmeister's Daypack. A click shows that tab.
 - **State:**

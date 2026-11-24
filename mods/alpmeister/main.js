@@ -42,7 +42,17 @@ import { MyIssues, MyPrs, Reviews } from "./my-day.js";
 import { Spotlight } from "./spotlight.js";
 import { Milestone, Tiles } from "./project.js";
 import { SettingsForm } from "./settings-view.js";
-import { Card, ICONS, IconButton, Note, TextButton, ago, fillPrompt, sessionName } from "./ui.js";
+import {
+  Card,
+  ICONS,
+  IconButton,
+  Note,
+  TextButton,
+  ago,
+  announceBackgroundTab,
+  fillPrompt,
+  sessionName,
+} from "./ui.js";
 
 const STALE_AFTER = 2 * 3600000;
 /** The pause after an agents folder changes before it is watched again: agents write often. */
@@ -479,7 +489,7 @@ export default class Alpmeister extends View {
    * Opens a Claude tab on an issue or PR in the space you are in. It starts in the live folder of
    * that space's first tab when it is the repository's local clone or inside it, such as a
    * worktree, else in the clone, else in the space's own folder. A background tab opens without
-   * taking focus.
+   * taking focus, and a notification says so.
    * @param {{ kind: string, repo: string, number: number }} item The issue or PR.
    * @param {{ background?: boolean }} [options]
    */
@@ -499,6 +509,7 @@ export default class Alpmeister extends View {
       task: fillPrompt(this.prompt(item.kind), item),
       focus: !background,
     });
+    if (background) announceBackgroundTab(item, space?.id);
   }
 
   /** The actions every row with a Claude button needs. */

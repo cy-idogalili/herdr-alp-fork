@@ -3,7 +3,7 @@
 
 import { div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, run, spaces, theme } from "herdr";
+import { exec, notify, run, spaces, theme } from "herdr";
 
 const DAY = 86400000;
 const SESSION_STATUS_LABELS = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
@@ -262,6 +262,25 @@ export function IconButton(id, icon, onClick, { tooltip, color, picture = false,
 
 /** The name a Claude tab opened on an issue or PR carries: `repo#12`, or `PR repo#12`. */
 export const sessionName = (item) => `${item.kind === "pr" ? "PR " : ""}${shortRepo(item.repo)}#${item.number}`;
+
+/**
+ * Tells the person a Claude tab opened in the background. A click on the notification shows the
+ * tab. Background tabs go last in their space, so the tab is the last one with the session name.
+ * @param {{ kind: string, repo: string, number: number, title?: string }} item The issue or PR.
+ * @param {string | undefined} spaceId The space the tab opened in.
+ */
+export function announceBackgroundTab(item, spaceId) {
+  const name = sessionName(item);
+  const space = spaces().find((candidate) => candidate.id === spaceId);
+  const tab = space?.tabs.filter((candidate) => candidate.name === name).at(-1);
+  notify({
+    title: `Claude tab ${name} opened in the background`,
+    ...(item.title ? { body: item.title } : {}),
+    level: "info",
+    icon: "icons/claude.svg",
+    ...(tab ? { action: { name: "tab.select", args: { id: tab.id } } } : {}),
+  });
+}
 
 /**
  * The open tab that carries an issue's or PR's session name, and its space.
