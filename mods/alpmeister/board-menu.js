@@ -4,9 +4,10 @@
 // Iteration menu offers the last completed iterations and every open one, the Milestone menu the
 // repository's open milestones; the card's own are ticked.
 
-import { div } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme } from "herdr";
+import { ICONS } from "./ui.js";
 
 const DAY = 86400000;
 /** How many completed iterations the menu offers, the latest last. */
@@ -77,7 +78,7 @@ const Line = (t, text, color) => div().px(8).py(4).text_size(11.5).text_color(co
  * A top-level row: its name, the card's current value, and a chevron. Pointing at it or
  * clicking it opens its menu.
  */
-function SubmenuRow(t, id, { label, value, open, onOpen }) {
+function SubmenuRow(t, id, { icon, label, value, open, onOpen }) {
   return h_flex()
     .id(id)
     .h(ROW_STEP)
@@ -96,6 +97,7 @@ function SubmenuRow(t, id, { label, value, open, onOpen }) {
       cx.stop_propagation();
       onOpen(cx);
     })
+    .child(svg(icon).flex_none().size(13).text_color(t.muted))
     .child(div().flex_none().text_size(12).text_color(t.foreground).child(label))
     .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(value))
     .child(div().flex_none().text_size(12).text_color(t.dim).child("›"));
@@ -157,8 +159,10 @@ export function CardMenu(item, options) {
   const t = theme();
   const id = `bv-menu-${item.itemId}`;
   const rows = [
-    { name: "iteration", label: "Iteration", value: item.iteration ?? "None" },
-    ...(item.kind === "draft" ? [] : [{ name: "milestone", label: "Milestone", value: item.milestone?.title ?? "None" }]),
+    { name: "iteration", icon: ICONS.iteration, label: "Iteration", value: item.iteration ?? "None" },
+    ...(item.kind === "draft"
+      ? []
+      : [{ name: "milestone", icon: ICONS.milestone, label: "Milestone", value: item.milestone?.title ?? "None" }]),
   ];
   const openIndex = rows.findIndex((row) => row.name === options.submenu);
   const main = Panel(t, `${id}-main`)
@@ -167,6 +171,7 @@ export function CardMenu(item, options) {
     .children(
       rows.map((row) =>
         SubmenuRow(t, `${id}-${row.name}`, {
+          icon: row.icon,
           label: row.label,
           value: row.value,
           open: options.submenu === row.name,

@@ -224,6 +224,8 @@ export const ICONS = {
   edit: "mods/alpmeister/pencil.svg",
   claude: "icons/claude.svg",
   terminal: "mods/workspace-chrome/terminal.svg",
+  iteration: "mods/alpmeister/iteration.svg",
+  milestone: "mods/alpmeister/milestone.svg",
   settings: "mods/workspace-chrome/settings.svg",
 };
 

@@ -2,7 +2,7 @@
 // GitHub's board shows them. Each card carries its assignees' avatars. Dragging a card to another
 // column moves it to that status; a right click opens its menu for the iteration and milestone.
 
-import { div, image } from "gpui-kit";
+import { div, image, svg } from "gpui-kit";
 import { h_flex, v_flex, Input, Popup } from "gpui-base";
 import { theme } from "herdr";
 import { boardFilter, boardStatuses } from "./data.js";
@@ -60,6 +60,14 @@ function columnsOf(ws, items) {
  * @returns {string} The initials.
  */
 const initials = (login) => (login.split("-").filter(Boolean).pop() ?? login).slice(0, 2).toUpperCase();
+
+/**
+ * A chip's content: an icon in the chip's color, then its text.
+ * @param {string} icon The icon's path.
+ * @param {string} text The text.
+ * @returns {object}
+ */
+const IconLabel = (icon, text) => h_flex().gap(4).items_center().min_w(0).child(svg(icon).flex_none().size(11)).child(text);
 
 /**
  * The column under the pointer: the columns share the row's width equally, with a gap between.
@@ -125,10 +133,20 @@ function ItemCard(t, item, options) {
   const id = `bv-${item.repo}#${item.number ?? item.title}`;
   const linked = item.kind !== "draft" && item.number != null;
   const session = linked ? sessionTab(item) : null;
-  const pastIteration = item.iteration && options.iteration && item.iteration !== options.iteration;
   const chips = (item.kind === "pr" ? [decisionChip(t, item, "bv")] : item.prs.map((pr) => prChip(t, item, pr, "bv"))).filter(Boolean);
-  if (pastIteration) chips.push(Chip(item.iteration, { color: t.working, id: `${id}-it`, tooltip: "Not in the current iteration" }));
-  if (item.milestone) chips.push(Chip(item.milestone.title, { color: t.muted, id: `${id}-ms`, tooltip: "Milestone" }));
+  if (item.iteration) {
+    const current = item.iteration === options.iteration;
+    chips.push(
+      Chip(IconLabel(ICONS.iteration, current ? "Current iteration" : item.iteration), {
+        color: current ? t.accent : t.working,
+        id: `${id}-it`,
+        tooltip: current ? item.iteration : "Not in the current iteration",
+      }),
+    );
+  }
+  if (item.milestone) {
+    chips.push(Chip(IconLabel(ICONS.milestone, item.milestone.title), { color: t.muted, id: `${id}-ms`, tooltip: "Milestone" }));
+  }
   const people = item.assignees.filter((person) => person.login);
   const card = v_flex()
     .id(id)

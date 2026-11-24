@@ -154,8 +154,10 @@ open it with `tab.new {mod: "alpmeister"}`.
     - The columns are the ticked statuses, each shown even when empty; with none ticked, the
       statuses that hold an item.
     - A card holds the number, the issue type, the session icon, Pin, the Claude button, the
-      title, the linked PRs' review state (a PR's own decision), the iteration when it is not
-      the current one, and the assignees' avatars. Long chips end in an ellipsis before the
+      title, the linked PRs' review state (a PR's own decision), the iteration (Current iteration,
+      in `accent`, for the current one), the milestone, and the assignees' avatars. The iteration
+      and milestone chips and menu rows carry GitHub's Octicons (`iteration.svg`,
+      `milestone.svg`, MIT). Long chips end in an ellipsis before the
       avatars. A click on a card opens it on GitHub.
     - The avatars download once with curl into `data/alpmeister/avatars/`, named for the image
       type GitHub serves; until then the login's initials show.
